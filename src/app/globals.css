@@ -1,26 +1,439 @@
 @import "tailwindcss";
+@import "@heroui/styles";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ========================================
+   BR Masters Design System
+   FIFA/EA FC Ultimate Team Inspired
+   ======================================== */
+
+/* Barlow Font Family */
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/Barlow/Barlow-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/Barlow/Barlow-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/Barlow/Barlow-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/Barlow/Barlow-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/Barlow/Barlow-ExtraBold.ttf') format('truetype');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Barlow';
+  src: url('/fonts/Barlow/Barlow-Black.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Light Theme */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  
+  /* Core Background Colors */
+  --brm-background: #F5F5F7;
+  --brm-background-dark: #E8E8EC;
+  --brm-card: #FFFFFF;
+  --brm-card-elevated: #FAFAFA;
+  
+  /* Primary - Turquoise */
+  --brm-primary: #25B8B8;
+  --brm-primary-foreground: #FFFFFF;
+  
+  /* Secondary - Electric Lime */
+  --brm-secondary: #CCFF00;
+  --brm-secondary-foreground: #1A1A2E;
+  
+  /* Accent - Magenta */
+  --brm-accent: #D63384;
+  --brm-accent-foreground: #FFFFFF;
+  
+  /* Purple */
+  --brm-purple: #4B3B7F;
+  --brm-purple-foreground: #FFFFFF;
+  
+  /* Text Colors */
+  --brm-text-primary: #1A1A2E;
+  --brm-text-secondary: #6B6B8A;
+  --brm-text-muted: #A0A0B8;
+}
+
+/* Dark Theme - Default for BR Masters */
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+  
+  /* Core Background Colors - Dark Navy */
+  --brm-background: #1A1A2E;
+  --brm-background-dark: #12121F;
+  --brm-card: #2C2C4E;
+  --brm-card-elevated: #3A3A5E;
+  
+  /* Primary - Turquoise */
+  --brm-primary: #25B8B8;
+  --brm-primary-foreground: #1A1A2E;
+  
+  /* Secondary - Electric Lime */
+  --brm-secondary: #CCFF00;
+  --brm-secondary-foreground: #1A1A2E;
+  
+  /* Accent - Magenta */
+  --brm-accent: #D63384;
+  --brm-accent-foreground: #FFFFFF;
+  
+  /* Purple */
+  --brm-purple: #4B3B7F;
+  --brm-purple-foreground: #FFFFFF;
+  
+  /* Text Colors */
+  --brm-text-primary: #F0F0F0;
+  --brm-text-secondary: #A0A0B8;
+  --brm-text-muted: #6B6B8A;
+}
+
+/* Make BR Masters colors available to Tailwind */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Fonts */
+  --font-sans: 'Barlow', var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+  --font-display: 'Barlow', system-ui, sans-serif;
+  
+  /* BR Masters Custom Colors */
+  --color-brm-background: var(--brm-background);
+  --color-brm-background-dark: var(--brm-background-dark);
+  --color-brm-card: var(--brm-card);
+  --color-brm-card-elevated: var(--brm-card-elevated);
+  
+  --color-brm-primary: var(--brm-primary);
+  --color-brm-primary-foreground: var(--brm-primary-foreground);
+  
+  --color-brm-secondary: var(--brm-secondary);
+  --color-brm-secondary-foreground: var(--brm-secondary-foreground);
+  
+  --color-brm-accent: var(--brm-accent);
+  --color-brm-accent-foreground: var(--brm-accent-foreground);
+  
+  --color-brm-purple: var(--brm-purple);
+  --color-brm-purple-foreground: var(--brm-purple-foreground);
+  
+  --color-brm-text-primary: var(--brm-text-primary);
+  --color-brm-text-secondary: var(--brm-text-secondary);
+  --color-brm-text-muted: var(--brm-text-muted);
+  
+  /* EA FC Inspired Colors */
+  --color-ea-dark: #0f0e17;
+  --color-ea-purple: #2e0f3e;
+  --color-ea-purple-light: #4c1d6f;
+  --color-ea-teal: #00f0ff;
+  --color-ea-lime: #ccff00;
+  --color-ea-pink: #ff0055;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Base body styles */
+body {
+  background: var(--brm-background);
+  color: var(--brm-text-primary);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ========================================
+   Animations
+   ======================================== */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 20px var(--brm-primary); }
+  50% { opacity: 0.8; box-shadow: 0 0 40px var(--brm-primary); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========================================
+   Utility Classes
+   ======================================== */
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out forwards;
+}
+
+/* Glass Effect */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dark .glass {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Skewed elements for EA FC style */
+.skew-card {
+  transform: skewX(-3deg);
+}
+
+.skew-card > * {
+  transform: skewX(3deg);
+}
+
+/* ========================================
+   Geometric Shapes & Patterns
+   ======================================== */
+
+/* Diagonal stripe pattern */
+.diagonal-stripes {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 10px,
+    rgba(255, 255, 255, 0.03) 10px,
+    rgba(255, 255, 255, 0.03) 20px
+  );
+}
+
+/* Geometric card with skew effect */
+.geometric-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.geometric-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -50%;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 100%
+  );
+  transform: skewX(-20deg);
+  pointer-events: none;
+}
+
+/* Gradient border effect */
+.gradient-border {
+  position: relative;
+  background: var(--brm-card);
+  border-radius: 12px;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 13px;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--brm-primary), var(--brm-accent), var(--brm-purple));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Animated gradient background */
+.animated-gradient {
+  background: linear-gradient(
+    -45deg,
+    var(--brm-primary),
+    var(--brm-purple),
+    var(--brm-accent),
+    var(--brm-secondary)
+  );
+  background-size: 400% 400%;
+  animation: gradient-shift 15s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Glow effect on hover */
+.glow-hover {
+  transition: box-shadow 0.3s ease;
+}
+
+.glow-hover:hover {
+  box-shadow: 
+    0 0 20px rgba(37, 184, 184, 0.3),
+    0 0 40px rgba(37, 184, 184, 0.1);
+}
+
+/* Level progress bar animation */
+@keyframes level-progress-shine {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.level-progress-bar {
+  background: linear-gradient(
+    90deg,
+    currentColor 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    currentColor 100%
+  );
+  background-size: 200% 100%;
+  animation: level-progress-shine 2s ease-in-out infinite;
+}
+
+/* Bounce in animation */
+@keyframes bounce-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.3) rotate(-10deg);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05) rotate(2deg);
+  }
+  70% {
+    transform: scale(0.98) rotate(-1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.animate-bounce-in {
+  animation: bounce-in 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+}
+
+/* Float gentle animation */
+@keyframes float-gentle {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(2deg); }
+}
+
+.animate-float-gentle {
+  animation: float-gentle 3s ease-in-out infinite;
+}
+
+/* Sparkle animation */
+@keyframes sparkle {
+  0%, 100% { opacity: 0; transform: scale(0) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1) rotate(180deg); }
+}
+
+.animate-sparkle {
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+/* ========================================
+   Scrollbar Styles
+   ======================================== */
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--brm-primary);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--brm-accent);
+}
+
+/* ========================================
+   Mobile Navigation
+   ======================================== */
+
+@media (max-width: 768px) {
+  body {
+    padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Mobile bottom nav stability */
+.mobile-bottom-nav {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 9999 !important;
 }
