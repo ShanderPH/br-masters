@@ -19,27 +19,7 @@ interface TileWrapperProps {
 interface BentoGridProps {
   children: ReactNode;
   className?: string;
-  variant?: "default" | "compact" | "full-height";
 }
-
-const getGradient = (colorTheme: ColorTheme) => {
-  switch (colorTheme) {
-    case "blue":
-      return "from-cyan-900/80 to-blue-900/80 border-l-ea-teal";
-    case "pink":
-      return "from-purple-900/80 to-pink-900/80 border-l-brm-accent";
-    case "lime":
-      return "from-green-900/80 to-lime-900/80 border-l-brm-secondary";
-    case "teal":
-      return "from-teal-900/80 to-cyan-900/80 border-l-ea-teal";
-    case "purple":
-      return "from-purple-900/80 to-indigo-900/80 border-l-brm-purple";
-    case "gold":
-      return "from-amber-900/80 to-yellow-900/80 border-l-yellow-500";
-    default:
-      return "from-slate-900/80 to-purple-900/80 border-l-white/20";
-  }
-};
 
 const getBorderColor = (colorTheme: ColorTheme) => {
   switch (colorTheme) {
@@ -57,6 +37,25 @@ const getBorderColor = (colorTheme: ColorTheme) => {
       return "border-l-yellow-500";
     default:
       return "border-l-white/20";
+  }
+};
+
+const getGradientBg = (colorTheme: ColorTheme) => {
+  switch (colorTheme) {
+    case "blue":
+      return "from-cyan-900/60 to-blue-950/80";
+    case "pink":
+      return "from-purple-900/60 to-pink-950/80";
+    case "lime":
+      return "from-green-900/60 to-lime-950/80";
+    case "teal":
+      return "from-teal-900/60 to-cyan-950/80";
+    case "purple":
+      return "from-purple-900/60 to-indigo-950/80";
+    case "gold":
+      return "from-amber-900/60 to-yellow-950/80";
+    default:
+      return "from-slate-900/60 to-purple-950/80";
   }
 };
 
@@ -79,13 +78,13 @@ export function BentoTileWrapper({
         delay,
         ease: [0.25, 0.46, 0.45, 0.94],
       }}
-      whileHover={{ scale: onClick ? 1.02 : 1 }}
-      whileTap={{ scale: onClick ? 0.98 : 1 }}
+      whileHover={{ scale: onClick ? 1.015 : 1 }}
+      whileTap={{ scale: onClick ? 0.985 : 1 }}
       onClick={onClick}
       className={`
         relative group overflow-hidden
         bg-brm-card/90 dark:bg-slate-900/90 backdrop-blur-sm
-        border-l-4 hover:border-l-8 transition-all duration-500
+        border-l-4 hover:border-l-6 transition-all duration-500
         shadow-xl
         rounded-none
         ${onClick ? "cursor-pointer" : ""}
@@ -108,19 +107,19 @@ export function BentoTileWrapper({
       <div
         className={`
           absolute inset-0 bg-linear-to-br z-0
-          ${bgImage ? "opacity-30" : "opacity-60"}
-          ${getGradient(colorTheme).replace("border-l-", "")}
+          ${bgImage ? "opacity-30" : "opacity-50"}
+          ${getGradientBg(colorTheme)}
         `}
       />
 
-      <div className="relative z-10 w-full h-full flex flex-col p-4 md:p-5 min-h-0 overflow-hidden">
+      <div className="relative z-10 w-full h-full flex flex-col p-3 sm:p-4 md:p-5 min-h-0 overflow-hidden">
         {title && (
           <div className="mb-2 md:mb-3 shrink-0">
-            <h2 className="font-display font-black text-lg md:text-2xl uppercase italic leading-none drop-shadow-md text-brm-text-primary dark:text-white">
+            <h2 className="font-display font-black text-base sm:text-lg md:text-xl uppercase italic leading-none drop-shadow-md text-brm-text-primary dark:text-white">
               {title}
             </h2>
             {subtitle && (
-              <p className="font-sans font-medium text-brm-text-secondary dark:text-gray-300 text-xs md:text-sm mt-1 uppercase tracking-wider line-clamp-1">
+              <p className="font-sans font-medium text-brm-text-secondary dark:text-gray-300 text-[10px] sm:text-xs mt-0.5 uppercase tracking-wider line-clamp-1">
                 {subtitle}
               </p>
             )}
@@ -132,7 +131,7 @@ export function BentoTileWrapper({
       <div
         className={`
           absolute top-0 -left-full w-1/2 h-full
-          bg-linear-to-r from-transparent via-white/10 to-transparent
+          bg-linear-to-r from-transparent via-white/8 to-transparent
           -skew-x-20 group-hover:left-[150%] transition-all duration-700
           pointer-events-none
         `}
@@ -141,20 +140,16 @@ export function BentoTileWrapper({
   );
 }
 
-export function BentoGrid({ children, className, variant = "default" }: BentoGridProps) {
+export function BentoGrid({ children, className }: BentoGridProps) {
   return (
     <div
       className={`
         w-full max-w-[1600px] mx-auto
         grid gap-2 sm:gap-3 md:gap-4
         grid-cols-1
-        min-[501px]:grid-cols-2
-        sm:grid-cols-2
+        min-[480px]:grid-cols-2
         lg:grid-cols-4
-        auto-rows-[minmax(140px,auto)]
-        lg:auto-rows-[minmax(160px,1fr)]
-        ${variant === "full-height" ? "min-h-[calc(100vh-12rem)]" : ""}
-        ${variant === "compact" ? "gap-1.5 sm:gap-2" : ""}
+        lg:grid-rows-[auto_auto]
         ${className || ""}
       `}
     >
@@ -168,9 +163,9 @@ export function FeatureTile({ children, className, ...props }: TileWrapperProps)
     <BentoTileWrapper
       className={`
         col-span-1
-        min-[501px]:col-span-2 min-[501px]:row-span-2
+        min-[480px]:col-span-2
         lg:col-span-2 lg:row-span-2
-        min-h-[200px] min-[501px]:min-h-[280px] md:min-h-[320px]
+        h-[260px] min-[480px]:h-[300px] md:h-[340px] lg:h-[420px] xl:h-[460px]
         ${className || ""}
       `}
       {...props}
@@ -185,9 +180,8 @@ export function VerticalTile({ children, className, ...props }: TileWrapperProps
     <BentoTileWrapper
       className={`
         col-span-1
-        min-[501px]:col-span-1 min-[501px]:row-span-2
-        min-h-[280px] max-h-[400px] min-[501px]:min-h-[320px] min-[501px]:max-h-[450px]
-        lg:max-h-[500px]
+        min-[480px]:col-span-1 min-[480px]:row-span-2
+        h-[380px] min-[480px]:h-[400px] lg:h-[420px] xl:h-[460px]
         overflow-hidden
         ${className || ""}
       `}
@@ -203,8 +197,8 @@ export function WideTile({ children, className, ...props }: TileWrapperProps) {
     <BentoTileWrapper
       className={`
         col-span-1
-        min-[501px]:col-span-2
-        min-h-[120px] min-[501px]:min-h-[140px] md:min-h-[160px]
+        min-[480px]:col-span-2
+        h-[140px] min-[480px]:h-[150px] md:h-[160px]
         ${className || ""}
       `}
       {...props}
@@ -219,7 +213,7 @@ export function StandardTile({ children, className, ...props }: TileWrapperProps
     <BentoTileWrapper
       className={`
         col-span-1
-        min-h-[140px] min-[501px]:min-h-[160px] md:min-h-[180px]
+        h-[160px] min-[480px]:h-[170px] md:h-[180px]
         ${className || ""}
       `}
       {...props}

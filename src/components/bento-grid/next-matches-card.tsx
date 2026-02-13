@@ -16,45 +16,8 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { VerticalTile } from "./bento-grid";
 import { createClient } from "@/lib/supabase/client";
-
-const getTeamLogoPath = (teamName: string): string => {
-  const teamLogoMap: Record<string, string> = {
-    "Atlético Mineiro": "atletico-mg",
-    "Atlético-MG": "atletico-mg",
-    Bahia: "bahia",
-    Botafogo: "botafogo",
-    Ceará: "ceara",
-    Corinthians: "corinthians",
-    Cruzeiro: "cruzeiro",
-    Flamengo: "flamengo",
-    Fluminense: "fluminense",
-    Fortaleza: "fortaleza",
-    Grêmio: "gremio",
-    Internacional: "internacional",
-    Juventude: "juventude",
-    Mirassol: "mirassol",
-    Palmeiras: "palmeiras",
-    "Red Bull Bragantino": "bragantino",
-    Bragantino: "bragantino",
-    Santos: "santos",
-    "São Paulo": "saopaulo",
-    "Sport Recife": "sport",
-    Sport: "sport",
-    "Vasco da Gama": "vasco",
-    Vasco: "vasco",
-    Vitória: "vitoria",
-  };
-
-  const mapped = teamLogoMap[teamName];
-  if (mapped) return `/images/logo/${mapped}.svg`;
-
-  const slug = teamName
-    ?.toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, "-");
-  return `/images/logo/${slug}.svg`;
-};
+import { useTournamentContext } from "@/components/dashboard/tournament-context";
+import { getTeamLogoPath } from "@/lib/services/team-logo-service";
 
 export interface Match {
   id: string;
@@ -88,6 +51,10 @@ interface NextMatchesCardProps {
   onMatchClick?: (match: Match, prediction?: MatchPrediction) => void;
   userPredictions?: Record<string, MatchPrediction>;
   currentUserId?: string;
+  currentPage?: number;
+  totalPages?: number;
+  onPageChange?: (page: number) => void;
+  roundNumber?: number;
 }
 
 const UrgencyBadge = ({ hoursUntilMatch }: { hoursUntilMatch: number }) => {
@@ -358,15 +325,18 @@ export function NextMatchesCard({
   delay = 0,
   onMatchClick,
   userPredictions = {},
+  currentPage = 0,
+  totalPages = 1,
+  onPageChange,
+  roundNumber,
 }: NextMatchesCardProps) {
   const router = useRouter();
-  const displayMatches = matches.slice(0, 4);
 
-  const totalMatches = displayMatches.length;
-  const predictedMatches = displayMatches.filter((m) => userPredictions[m.id]).length;
+  const totalMatches = matches.length;
+  const predictedMatches = matches.filter((m) => userPredictions[m.id]).length;
 
   const now = new Date();
-  const urgentMatches = displayMatches.filter((m) => {
+  const urgentMatches = matches.filter((m) => {
     const hoursUntil =
       (new Date(m.startTime).getTime() - now.getTime()) / (1000 * 60 * 60);
     return hoursUntil > 0 && hoursUntil <= 24;
@@ -382,7 +352,7 @@ export function NextMatchesCard({
     );
   }
 
-  if (displayMatches.length === 0) {
+  if (matches.length === 0) {
     return (
       <VerticalTile title="Próximas" subtitle="Partidas" colorTheme="teal" delay={delay}>
         <div className="flex flex-col items-center justify-center h-full text-gray-400 py-8">
@@ -395,41 +365,53 @@ export function NextMatchesCard({
   }
 
   return (
-    <VerticalTile title="Próximas" subtitle="Partidas" colorTheme="teal" delay={delay}>
+    <VerticalTile
+      title="Próximas"
+      subtitle={roundNumber ? `Rodada ${roundNumber}` : "Partidas"}
+      colorTheme="teal"
+      delay={delay}
+    >
       <div className="flex flex-col h-full min-h-0 overflow-hidden">
-        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-700/50">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-700/50 shrink-0">
+          <div className="flex items-center gap-2">
             <div className="flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-brm-secondary" />
-              <span className="text-[10px] sm:text-xs text-gray-400">
+              <CheckCircle2 className="w-3 h-3 text-brm-secondary" />
+              <span className="text-[10px] text-gray-400">
                 <span className="font-bold text-brm-secondary">{predictedMatches}</span>/
-                {totalMatches} palpites
+                {totalMatches}
               </span>
             </div>
             {urgentMatches > 0 && (
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-orange-500/20 rounded-full">
-                <Zap className="w-3 h-3 text-orange-400" />
-                <span className="text-[9px] sm:text-[10px] text-orange-400 font-bold">
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-500/20 rounded-full">
+                <Zap className="w-2.5 h-2.5 text-orange-400" />
+                <span className="text-[9px] text-orange-400 font-bold">
                   {urgentMatches} hoje
                 </span>
               </div>
             )}
           </div>
+
+          {totalPages > 1 && onPageChange && (
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => (
+                <button
+                  key={i}
+                  onClick={() => onPageChange(i)}
+                  className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${
+                    i === currentPage
+                      ? "bg-brm-primary w-4"
+                      : "bg-white/20 hover:bg-white/40"
+                  }`}
+                  aria-label={`Página ${i + 1}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
-        <div
-          className={`
-            flex-1 flex flex-col gap-2 sm:gap-3
-            min-h-0
-            max-h-[280px] sm:max-h-[320px] md:max-h-[380px]
-            overflow-y-auto overflow-x-hidden
-            custom-scrollbar
-            scroll-smooth
-            relative
-          `}
-        >
+        <div className="flex-1 flex flex-col gap-1.5 sm:gap-2 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-smooth">
           <AnimatePresence mode="popLayout">
-            {displayMatches.map((match, index) => (
+            {matches.map((match, index) => (
               <MatchItem
                 key={match.id}
                 match={match}
@@ -447,24 +429,17 @@ export function NextMatchesCard({
           </AnimatePresence>
         </div>
 
-        <div className="mt-4 pt-3 border-t border-slate-700/50">
+        <div className="mt-2 pt-2 border-t border-slate-700/50 shrink-0">
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => router.push("/partidas")}
-            className={`
-              w-full py-3 sm:py-3.5 cursor-pointer rounded-lg
-              bg-linear-to-r from-brm-purple/30 to-brm-purple/20
-              hover:from-brm-purple/50 hover:to-brm-purple/30
-              border border-brm-purple/30 hover:border-brm-purple/50
-              text-brm-purple-foreground hover:text-white
-              text-xs sm:text-sm font-display font-bold uppercase tracking-wide
-              transition-all duration-300
-              flex items-center justify-center gap-2
-            `}
+            className="w-full py-2 cursor-pointer bg-brm-purple/20 hover:bg-brm-purple/40 border border-brm-purple/30 hover:border-brm-purple/50 text-brm-text-primary hover:text-white text-[10px] sm:text-xs font-display font-bold uppercase tracking-wide transition-all duration-300 flex items-center justify-center gap-1.5 -skew-x-6"
           >
-            Ver Todas as Partidas
-            <ChevronRight className="w-4 h-4" />
+            <span className="skew-x-6 flex items-center gap-1.5">
+              Ver Todas
+              <ChevronRight className="w-3.5 h-3.5" />
+            </span>
           </motion.button>
         </div>
       </div>
@@ -481,30 +456,39 @@ export function NextMatchesCardWithData({
   currentUserId?: string;
   onMatchClick?: (match: Match, prediction?: MatchPrediction) => void;
 }) {
+  const { currentTournament, computedRound } = useTournamentContext();
   const [matches, setMatches] = useState<Match[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userPredictions, setUserPredictions] = useState<Record<string, MatchPrediction>>({});
+  const [page, setPage] = useState(0);
+  const MATCHES_PER_PAGE = 4;
+
+  useEffect(() => {
+    setPage(0);
+  }, [currentTournament?.id, computedRound]);
 
   useEffect(() => {
     const fetchData = async () => {
+      setIsLoading(true);
       try {
         const supabase = createClient();
+        const tournamentId = currentTournament?.id;
 
-        const { data: matchesData } = await supabase
+        let query = supabase
           .from("matches")
-          .select(`
-            id,
-            slug,
-            start_time,
-            status,
-            round_number,
-            home_team_id,
-            away_team_id,
-            tournament_id
-          `)
-          .gt("start_time", new Date().toISOString())
+          .select("id, slug, start_time, status, round_number, home_team_id, home_team_name, home_team_short_name, home_team_logo, away_team_id, away_team_name, away_team_short_name, away_team_logo, tournament_id")
+          .in("status", ["notstarted", "postponed"])
           .order("start_time", { ascending: true })
-          .limit(6);
+          .limit(20);
+
+        if (tournamentId) {
+          query = query.eq("tournament_id", tournamentId);
+          if (computedRound > 0) {
+            query = query.eq("round_number", computedRound);
+          }
+        }
+
+        const { data: matchesData } = await query;
 
         type MatchRow = {
           id: string;
@@ -512,106 +496,92 @@ export function NextMatchesCardWithData({
           start_time: string;
           status: string;
           round_number: number | null;
-          home_team_id: string;
-          away_team_id: string;
-          tournament_id: string;
+          home_team_id: number;
+          home_team_name: string;
+          home_team_short_name: string | null;
+          home_team_logo: string | null;
+          away_team_id: number;
+          away_team_name: string;
+          away_team_short_name: string | null;
+          away_team_logo: string | null;
+          tournament_id: number;
         };
 
-        const dbMatches = matchesData as MatchRow[] | null;
+        const dbMatches = (matchesData as MatchRow[] | null) || [];
 
-        if (dbMatches && dbMatches.length > 0) {
-          const teamIds = [
-            ...new Set(dbMatches.flatMap((m) => [m.home_team_id, m.away_team_id])),
-          ];
+        const formatted: Match[] = dbMatches.map((m) => ({
+          id: String(m.id),
+          homeTeam: {
+            id: String(m.home_team_id),
+            name: m.home_team_name,
+            shortName: m.home_team_short_name || undefined,
+            logo: m.home_team_logo || getTeamLogoPath(m.home_team_name),
+          },
+          awayTeam: {
+            id: String(m.away_team_id),
+            name: m.away_team_name,
+            shortName: m.away_team_short_name || undefined,
+            logo: m.away_team_logo || getTeamLogoPath(m.away_team_name),
+          },
+          startTime: m.start_time,
+          status: m.status,
+          roundNumber: m.round_number || undefined,
+          tournamentName: undefined,
+        }));
 
-          const { data: teamsData } = await supabase
-            .from("teams")
-            .select("id, name, name_code, logo_url")
-            .in("id", teamIds);
+        setMatches(formatted);
 
-          type TeamRow = {
-            id: string;
-            name: string;
-            name_code: string;
-            logo_url: string | null;
+        if (currentUserId && formatted.length > 0) {
+          const matchIds = formatted.map((m) => Number(m.id));
+          const { data: predictionsData } = await supabase
+            .from("predictions")
+            .select("match_id, home_team_goals, away_team_goals")
+            .eq("user_id", currentUserId)
+            .in("match_id", matchIds);
+
+          type PredictionRow = {
+            match_id: string;
+            home_team_goals: number;
+            away_team_goals: number;
           };
 
-          const teams = teamsData as TeamRow[] | null;
-          const teamsMap = new Map<string, TeamRow>();
-          if (teams) {
-            teams.forEach((t) => teamsMap.set(t.id, t));
-          }
-
-          const formatted: Match[] = dbMatches.map((m) => {
-            const homeTeam = teamsMap.get(m.home_team_id);
-            const awayTeam = teamsMap.get(m.away_team_id);
-
-            return {
-              id: m.id,
-              homeTeam: {
-                id: m.home_team_id,
-                name: homeTeam?.name || "Time Casa",
-                shortName: homeTeam?.name_code,
-                logo: homeTeam?.logo_url || getTeamLogoPath(homeTeam?.name || ""),
-              },
-              awayTeam: {
-                id: m.away_team_id,
-                name: awayTeam?.name || "Time Fora",
-                shortName: awayTeam?.name_code,
-                logo: awayTeam?.logo_url || getTeamLogoPath(awayTeam?.name || ""),
-              },
-              startTime: m.start_time,
-              status: m.status,
-              roundNumber: m.round_number || undefined,
+          const predictions = (predictionsData as PredictionRow[] | null) || [];
+          const predictionsMap: Record<string, MatchPrediction> = {};
+          predictions.forEach((p) => {
+            predictionsMap[String(p.match_id)] = {
+              home_team_goals: p.home_team_goals,
+              away_team_goals: p.away_team_goals,
             };
           });
-
-          setMatches(formatted);
-
-          if (currentUserId) {
-            const matchIds = formatted.map((m) => m.id);
-            const { data: predictionsData } = await supabase
-              .from("predictions")
-              .select("match_id, home_team_goals, away_team_goals")
-              .eq("user_id", currentUserId)
-              .in("match_id", matchIds);
-
-            type PredictionRow = {
-              match_id: string;
-              home_team_goals: number;
-              away_team_goals: number;
-            };
-
-            const predictions = predictionsData as PredictionRow[] | null;
-            if (predictions) {
-              const predictionsMap: Record<string, MatchPrediction> = {};
-              predictions.forEach((p) => {
-                predictionsMap[p.match_id] = {
-                  home_team_goals: p.home_team_goals,
-                  away_team_goals: p.away_team_goals,
-                };
-              });
-              setUserPredictions(predictionsMap);
-            }
-          }
+          setUserPredictions(predictionsMap);
         }
       } catch {
-        // Keep default empty state
+        setMatches([]);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchData();
-  }, [currentUserId]);
+  }, [currentUserId, currentTournament?.id, computedRound]);
+
+  const totalPages = Math.ceil(matches.length / MATCHES_PER_PAGE);
+  const paginatedMatches = matches.slice(
+    page * MATCHES_PER_PAGE,
+    (page + 1) * MATCHES_PER_PAGE
+  );
 
   return (
     <NextMatchesCard
-      matches={matches}
+      matches={paginatedMatches}
       isLoading={isLoading}
       delay={delay}
       onMatchClick={onMatchClick}
       userPredictions={userPredictions}
+      currentPage={page}
+      totalPages={totalPages}
+      onPageChange={setPage}
+      roundNumber={computedRound}
     />
   );
 }
