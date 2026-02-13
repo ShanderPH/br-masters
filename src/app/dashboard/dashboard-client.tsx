@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Navbar } from "@/components/layout/navbar";
-import { DashboardBackground } from "@/components/dashboard";
+import { DashboardBackground, TournamentProvider } from "@/components/dashboard";
 import {
   BentoGrid,
   TournamentCardWithData,
@@ -69,7 +69,6 @@ export function DashboardClient({
   };
 
   const handleDeposit = () => {
-    // TODO: Implement payment modal
     router.push("/partidas");
   };
 
@@ -86,53 +85,55 @@ export function DashboardClient({
   };
 
   return (
-    <div className="min-h-screen relative">
-      <DashboardBackground />
+    <TournamentProvider>
+      <div className="min-h-screen relative">
+        <DashboardBackground />
 
-      <div className="relative z-10">
-        <Navbar 
-          isAuthenticated={true}
-          user={{
-            id: user.id,
-            name: user.name,
-            points: user.points,
-            level: user.level,
-            role: user.role,
-          }} 
-          onLogout={handleLogout} 
-        />
+        <div className="relative z-10">
+          <Navbar
+            isAuthenticated={true}
+            user={{
+              id: user.id,
+              name: user.name,
+              points: user.points,
+              level: user.level,
+              role: user.role,
+            }}
+            onLogout={handleLogout}
+          />
 
-        <main className="flex-1 flex flex-col pt-16 md:pt-20">
-          <motion.section
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5 }}
-            className="w-full flex-1 px-3 sm:px-4 md:px-6 py-4 sm:py-6 md:py-8"
-          >
-            <BentoGrid variant="full-height">
-              <TournamentCardWithData delay={0} />
+          <main className="flex-1 flex flex-col pt-16 md:pt-20">
+            <motion.section
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5 }}
+              className="w-full flex-1 px-2 sm:px-4 md:px-6 py-3 sm:py-5 md:py-8"
+            >
+              <BentoGrid>
+                <TournamentCardWithData delay={0} />
 
-              <NextMatchesCardWithData
-                delay={0.1}
-                currentUserId={user.id}
-                onMatchClick={handleMatchClick}
-              />
+                <NextMatchesCardWithData
+                  delay={0.1}
+                  currentUserId={user.id}
+                  onMatchClick={handleMatchClick}
+                />
 
-              <RankingCardWithData currentUserId={user.id} delay={0.2} />
+                <RankingCardWithData currentUserId={user.id} delay={0.15} />
 
-              <PrizePoolCard
-                prizePool={prizePool}
-                onClick={handleDeposit}
-                delay={0.3}
-              />
+                <PrizePoolCard
+                  prizePool={prizePool}
+                  onClick={handleDeposit}
+                  delay={0.2}
+                />
 
-              <UserStatsCard stats={userStats} delay={0.4} />
+                <UserStatsCard stats={userStats} delay={0.25} />
 
-              <StandingsCard delay={0.5} />
-            </BentoGrid>
-          </motion.section>
-        </main>
+                <StandingsCard delay={0.3} />
+              </BentoGrid>
+            </motion.section>
+          </main>
+        </div>
       </div>
-    </div>
+    </TournamentProvider>
   );
 }

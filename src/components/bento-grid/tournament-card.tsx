@@ -1,58 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Trophy, ChevronRight, ChevronLeft, Calendar, Loader2 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { FeatureTile } from "./bento-grid";
-import { createClient } from "@/lib/supabase/client";
-
-
-const getTeamLogoPath = (teamName: string): string => {
-  const teamLogoMap: Record<string, string> = {
-    "Atlético Mineiro": "atletico-mg",
-    "Atlético-MG": "atletico-mg",
-    "Bahia": "bahia",
-    "Botafogo": "botafogo",
-    "Ceará": "ceara",
-    "Corinthians": "corinthians",
-    "Cruzeiro": "cruzeiro",
-    "Flamengo": "flamengo",
-    "Fluminense": "fluminense",
-    "Fortaleza": "fortaleza",
-    "Grêmio": "gremio",
-    "Internacional": "internacional",
-    "Juventude": "juventude",
-    "Mirassol": "mirassol",
-    "Palmeiras": "palmeiras",
-    "Red Bull Bragantino": "bragantino",
-    "Bragantino": "bragantino",
-    "Santos": "santos",
-    "São Paulo": "saopaulo",
-    "Sport Recife": "sport",
-    "Sport": "sport",
-    "Vasco da Gama": "vasco",
-    "Vasco": "vasco",
-    "Vitória": "vitoria",
-  };
-
-  const mapped = teamLogoMap[teamName];
-  if (mapped) return `/images/logo/${mapped}.svg`;
-
-  const slug = teamName
-    ?.toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, "-");
-  return `/images/logo/${slug}.svg`;
-};
-
-interface LastChampion {
-  year: string;
-  team_name: string;
-  team_id: number;
-}
+import { useTournamentContext } from "@/components/dashboard/tournament-context";
+import { getTeamLogoPath } from "@/lib/services/team-logo-service";
 
 interface StandingTeam {
   position: number;
@@ -72,30 +27,8 @@ interface StandingTeam {
   goalDifference: number;
 }
 
-interface Tournament {
-  id: number;
-  name: string;
-  short_name?: string;
-  logo_url?: string;
-  wallpaper_url?: string;
-  status: "upcoming" | "active" | "finished";
-  current_round_type?: string;
-  current_round_number?: number;
-  most_titles_team_name?: string;
-  most_titles_count?: number;
-  last_champions?: LastChampion[];
-  sofascore_id?: number;
-  sofascore_season_id?: number;
-}
-
-interface TournamentCardProps {
-  tournaments?: Tournament[];
-  isLoading?: boolean;
-  delay?: number;
-}
-
-const StatusBadge = ({ status }: { status: Tournament["status"] }) => {
-  const config = {
+const StatusBadge = ({ status }: { status: string }) => {
+  const config: Record<string, { label: string; className: string; pulse: boolean }> = {
     upcoming: {
       label: "A Iniciar",
       className: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
@@ -113,11 +46,11 @@ const StatusBadge = ({ status }: { status: Tournament["status"] }) => {
     },
   };
 
-  const { label, className, pulse } = config[status];
+  const { label, className, pulse } = config[status] || config.upcoming;
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] md:text-xs font-bold uppercase rounded-sm border ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase rounded-sm border ${className}`}
     >
       {pulse && (
         <span className="relative flex h-2 w-2">
@@ -130,14 +63,14 @@ const StatusBadge = ({ status }: { status: Tournament["status"] }) => {
   );
 };
 
-const StandingsTable = ({ standings, maxTeams = 10 }: { standings: StandingTeam[]; maxTeams?: number }) => {
+const StandingsTable = ({ standings, maxTeams = 6 }: { standings: StandingTeam[]; maxTeams?: number }) => {
   if (!standings || standings.length === 0) return null;
 
   const displayStandings = standings.slice(0, maxTeams);
 
   return (
-    <div className="mt-3 space-y-0.5">
-      <div className="flex items-center gap-2 mb-2">
+    <div className="mt-2 space-y-0.5 flex-1 min-h-0">
+      <div className="flex items-center gap-2 mb-1.5">
         <Trophy className="w-3 h-3 text-yellow-400" />
         <span className="font-display text-[10px] text-brm-text-secondary dark:text-gray-400 uppercase tracking-wider">
           Classificação
@@ -146,7 +79,7 @@ const StandingsTable = ({ standings, maxTeams = 10 }: { standings: StandingTeam[
           Top {maxTeams}
         </span>
       </div>
-      <div className="max-h-[180px] md:max-h-[220px] overflow-y-auto custom-scrollbar space-y-0.5">
+      <div className="overflow-y-auto custom-scrollbar space-y-0.5">
         {displayStandings.map((standing, idx) => (
           <motion.div
             key={standing.team.id}
@@ -154,7 +87,7 @@ const StandingsTable = ({ standings, maxTeams = 10 }: { standings: StandingTeam[
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: idx * 0.03 }}
             className={`
-              flex items-center gap-1.5 py-1 px-2 -skew-x-3
+              flex items-center gap-1.5 py-0.5 sm:py-1 px-2 -skew-x-3
               transition-colors duration-200
               ${standing.position === 1 ? "bg-yellow-500/20 border-l-2 border-yellow-500" : ""}
               ${standing.position >= 2 && standing.position <= 4 ? "bg-green-500/10 border-l-2 border-green-500/50" : ""}
@@ -202,43 +135,36 @@ const StandingsTable = ({ standings, maxTeams = 10 }: { standings: StandingTeam[
   );
 };
 
-export function TournamentCard({
-  tournaments = [],
-  isLoading = false,
-  delay = 0,
-}: TournamentCardProps) {
+export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
   const router = useRouter();
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const {
+    tournaments,
+    currentTournament,
+    currentSeason,
+    currentRound,
+    isLoading,
+    currentIndex,
+    goToNext,
+    goToPrev,
+  } = useTournamentContext();
+
   const [standings, setStandings] = useState<StandingTeam[]>([]);
   const [loadingStandings, setLoadingStandings] = useState(false);
 
-  const currentTournament = tournaments[currentIndex];
-
-  const goToNext = useCallback(() => {
-    setCurrentIndex((prev) => (prev + 1) % tournaments.length);
-  }, [tournaments.length]);
-
-  const goToPrev = useCallback(() => {
-    setCurrentIndex((prev) => (prev - 1 + tournaments.length) % tournaments.length);
-  }, [tournaments.length]);
-
   useEffect(() => {
     const fetchStandings = async () => {
+      if (!currentTournament) return;
       setLoadingStandings(true);
       try {
-        const tournamentId = currentTournament?.sofascore_id || 325;
-        const seasonId = currentTournament?.sofascore_season_id || 72034;
-        
+        const tournamentId = currentTournament.id;
+        const seasonId = currentTournament.season_id || currentSeason?.id || 87678;
+
         const response = await fetch(
           `/api/sofascore/standings?tournamentId=${tournamentId}&seasonId=${seasonId}`
         );
         if (response.ok) {
           const data = await response.json();
-          if (data.standings && Array.isArray(data.standings)) {
-            setStandings(data.standings);
-          } else {
-            setStandings([]);
-          }
+          setStandings(Array.isArray(data.standings) ? data.standings : []);
         } else {
           setStandings([]);
         }
@@ -249,10 +175,8 @@ export function TournamentCard({
       }
     };
 
-    if (currentTournament) {
-      fetchStandings();
-    }
-  }, [currentTournament]);
+    fetchStandings();
+  }, [currentTournament, currentSeason]);
 
   if (isLoading) {
     return (
@@ -285,57 +209,58 @@ export function TournamentCard({
       colorTheme="pink"
       delay={delay}
       bgImage={currentTournament.wallpaper_url}
-      onClick={() => router.push(`/partidas`)}
-      className="min-h-[280px] md:min-h-[320px]"
+      onClick={() => router.push("/partidas")}
     >
       <div className="flex flex-col h-full">
-        <div className="flex items-start justify-between mb-2 md:mb-3">
-          <div className="flex items-center gap-3">
-            <div className="relative w-12 h-12 md:w-16 md:h-16 bg-white/20 rounded-lg p-1.5 shrink-0 backdrop-blur-md shadow-lg">
+        <div className="flex items-start justify-between mb-2 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="relative w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 bg-white/20 rounded-lg p-1 shrink-0 backdrop-blur-md shadow-lg">
               <Image
                 src={currentTournament.logo_url || "/images/brasileirao-logo.svg"}
                 alt={currentTournament.name}
                 fill
-                className="object-contain p-1"
+                className="object-contain p-0.5"
               />
             </div>
 
-            <div>
+            <div className="min-w-0">
               <AnimatePresence mode="wait">
                 <motion.h2
                   key={currentTournament.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="font-display font-black text-lg md:text-2xl uppercase italic leading-tight text-brm-text-primary dark:text-white drop-shadow-lg"
+                  className="font-display font-black text-base sm:text-lg md:text-xl uppercase italic leading-tight text-brm-text-primary dark:text-white drop-shadow-lg truncate"
                 >
                   {currentTournament.short_name || currentTournament.name}
                 </motion.h2>
               </AnimatePresence>
-              <StatusBadge status={currentTournament.status} />
+              <div className="flex items-center gap-2 mt-0.5">
+                <StatusBadge status={currentTournament.status} />
+                {currentRound > 0 && (
+                  <span className="text-[10px] text-brm-text-muted font-display flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    Rodada {currentRound}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
           {tournaments.length > 1 && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 shrink-0">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  goToPrev();
-                }}
+                onClick={(e) => { e.stopPropagation(); goToPrev(); }}
                 className="p-1 hover:bg-white/10 rounded transition-colors"
                 aria-label="Anterior"
               >
                 <ChevronLeft className="w-4 h-4 text-gray-400" />
               </button>
-              <span className="text-[10px] text-gray-500 font-display">
+              <span className="text-[10px] text-gray-500 font-display tabular-nums">
                 {currentIndex + 1}/{tournaments.length}
               </span>
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  goToNext();
-                }}
+                onClick={(e) => { e.stopPropagation(); goToNext(); }}
                 className="p-1 hover:bg-white/10 rounded transition-colors"
                 aria-label="Próximo"
               >
@@ -345,30 +270,16 @@ export function TournamentCard({
           )}
         </div>
 
-        {currentTournament.current_round_type && (
-          <div className="flex items-center gap-2 mb-3">
-            <Calendar className="w-4 h-4 text-brm-accent" />
-            <span className="text-sm md:text-base text-brm-text-primary dark:text-white font-semibold">
-              {currentTournament.current_round_type}
-            </span>
-            {currentTournament.current_round_number && (
-              <span className="text-xs text-brm-text-muted dark:text-gray-400">
-                (Rodada {currentTournament.current_round_number})
-              </span>
-            )}
-          </div>
-        )}
-
-        {currentTournament.most_titles_team_name && currentTournament.most_titles_count && (
+        {currentTournament.most_titles_team_name && currentTournament.most_titles_count ? (
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.3, duration: 0.4 }}
-            className="flex items-center gap-2 mb-2"
+            className="flex items-center gap-2 mb-2 shrink-0"
           >
-            <div className="relative flex items-center gap-2 bg-linear-to-r from-yellow-500/20 to-amber-500/10 border-l-2 border-yellow-500 px-3 py-1.5 -skew-x-6">
+            <div className="relative flex items-center gap-2 bg-linear-to-r from-yellow-500/20 to-amber-500/10 border-l-2 border-yellow-500 px-2 py-1 -skew-x-6">
               <div className="skew-x-6 flex items-center gap-2">
-                <div className="relative w-6 h-6 md:w-8 md:h-8 shrink-0">
+                <div className="relative w-5 h-5 sm:w-6 sm:h-6 shrink-0">
                   <Image
                     src={getTeamLogoPath(currentTournament.most_titles_team_name)}
                     alt={currentTournament.most_titles_team_name}
@@ -377,14 +288,14 @@ export function TournamentCard({
                   />
                 </div>
                 <div className="flex flex-col">
-                  <span className="font-display text-[8px] md:text-[10px] text-yellow-400/80 font-bold uppercase tracking-wider">
+                  <span className="font-display text-[8px] text-yellow-400/80 font-bold uppercase tracking-wider">
                     Maior Campeão
                   </span>
                   <div className="flex items-center gap-1">
-                    <span className="font-display text-xs md:text-sm text-brm-text-primary dark:text-white font-black uppercase italic">
+                    <span className="font-display text-[10px] sm:text-xs text-brm-text-primary dark:text-white font-black uppercase italic">
                       {currentTournament.most_titles_team_name}
                     </span>
-                    <span className="font-display text-xs md:text-sm text-yellow-400 font-bold">
+                    <span className="font-display text-[10px] sm:text-xs text-yellow-400 font-bold">
                       ({currentTournament.most_titles_count}x)
                     </span>
                   </div>
@@ -392,10 +303,10 @@ export function TournamentCard({
               </div>
             </div>
           </motion.div>
-        )}
+        ) : null}
 
         {loadingStandings ? (
-          <div className="flex items-center justify-center py-4">
+          <div className="flex items-center justify-center py-4 flex-1">
             <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
           </div>
         ) : (
@@ -404,17 +315,9 @@ export function TournamentCard({
 
         <motion.button
           whileTap={{ scale: 0.98 }}
-          className={`
-            w-full md:w-auto mt-auto
-            bg-brm-accent text-white font-display font-bold uppercase
-            px-4 py-2 md:px-6 md:py-3 text-sm md:text-base
-            transform md:-skew-x-12 transition-colors duration-300
-            hover:bg-brm-secondary hover:text-brm-background-dark
-            shadow-lg hover:shadow-brm-secondary/30
-            flex items-center justify-center gap-2
-          `}
+          className="w-full mt-2 shrink-0 bg-brm-accent text-white font-display font-bold uppercase px-4 py-2 text-xs sm:text-sm -skew-x-12 transition-colors duration-300 hover:bg-brm-secondary hover:text-brm-background-dark shadow-lg hover:shadow-brm-secondary/30 flex items-center justify-center gap-2"
         >
-          <span className="transform md:skew-x-12 flex items-center gap-2 font-display">
+          <span className="skew-x-12 flex items-center gap-2 font-display">
             Ver Partidas
             <ChevronRight className="w-4 h-4" />
           </span>
@@ -422,113 +325,4 @@ export function TournamentCard({
       </div>
     </FeatureTile>
   );
-}
-
-export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
-  const [tournaments, setTournaments] = useState<Tournament[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchTournaments = async () => {
-      try {
-        const supabase = createClient();
-
-        const { data: tournamentsData } = await supabase
-          .from("tournaments")
-          .select("id, name, slug, logo_url, is_featured, display_order, format")
-          .eq("is_featured", true)
-          .order("display_order", { ascending: true })
-          .limit(5);
-
-        const tournaments = tournamentsData as Array<{
-          id: string;
-          name: string;
-          slug: string;
-          logo_url: string | null;
-          is_featured: boolean;
-          display_order: number;
-          format: string;
-        }> | null;
-
-        if (tournaments && tournaments.length > 0) {
-          const tournamentIds = tournaments.map((t) => t.id);
-          
-          const { data: seasonsData } = await supabase
-            .from("tournament_seasons")
-            .select("tournament_id, current_phase, current_round_type, current_round_number, status")
-            .eq("is_current", true)
-            .in("tournament_id", tournamentIds);
-
-          const seasons = seasonsData as Array<{
-            tournament_id: string;
-            current_phase: string | null;
-            current_round_type: string | null;
-            current_round_number: number | null;
-            status: string;
-          }> | null;
-
-          type SeasonData = {
-            tournament_id: string;
-            current_phase: string | null;
-            current_round_type: string | null;
-            current_round_number: number | null;
-            status: string;
-          };
-          
-          const seasonsMap = new Map<string, SeasonData>();
-          
-          if (seasons) {
-            seasons.forEach((s) => {
-              seasonsMap.set(s.tournament_id, s);
-            });
-          }
-
-          const formatted: Tournament[] = tournaments.map((t) => {
-            const season = seasonsMap.get(t.id);
-            return {
-              id: parseInt(t.id) || 0,
-              name: t.name,
-              short_name: t.name,
-              logo_url: t.logo_url || "/images/brasileirao-logo.svg",
-              wallpaper_url: "/images/wallpaper_brasileirao_2026.png",
-              status: (season?.status === "active" ? "active" : "upcoming") as Tournament["status"],
-              current_round_type: season?.current_phase || season?.current_round_type || "Fase de Grupos",
-              current_round_number: season?.current_round_number || 1,
-            };
-          });
-          setTournaments(formatted);
-        } else {
-          setTournaments([getDefaultTournament()]);
-        }
-      } catch {
-        setTournaments([getDefaultTournament()]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchTournaments();
-  }, []);
-
-  return <TournamentCard tournaments={tournaments} isLoading={isLoading} delay={delay} />;
-}
-
-function getDefaultTournament(): Tournament {
-  return {
-    id: 325,
-    name: "Brasileirão Betano 2026",
-    short_name: "Brasileirão",
-    logo_url: "/images/brasileirao-logo.svg",
-    wallpaper_url: "/images/wallpaper_brasileirao_2026.png",
-    status: "active",
-    current_round_type: "Rodada 1",
-    current_round_number: 1,
-    most_titles_team_name: "Palmeiras",
-    most_titles_count: 12,
-    last_champions: [
-      { year: "2025", team_name: "Botafogo", team_id: 1958 },
-      { year: "2024", team_name: "Botafogo", team_id: 1958 },
-      { year: "2023", team_name: "Palmeiras", team_id: 1963 },
-    ],
-  };
 }

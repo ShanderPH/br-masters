@@ -89,7 +89,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const tournamentId = searchParams.get("tournamentId") || process.env.BRASILEIRAO_TOURNAMENT_ID || "325";
-    const seasonId = searchParams.get("seasonId") || process.env.BRASILEIRAO_SEASON_ID || "72034";
+    const seasonId = searchParams.get("seasonId") || process.env.BRASILEIRAO_SEASON_ID || "87678";
 
     // Check cache first
     if (standingsCache && Date.now() - standingsCache.timestamp < CACHE_DURATION) {

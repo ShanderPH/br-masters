@@ -10,17 +10,22 @@ import {
   Crown,
   Medal,
   Award,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { VerticalTile } from "./bento-grid";
 import { createClient } from "@/lib/supabase/client";
+import { useTournamentContext } from "@/components/dashboard/tournament-context";
 
 interface RankingUser {
   id: string;
   name: string;
   points: number;
   rank: number;
+  previousRank?: number | null;
   teamLogo?: string | null;
   teamName?: string | null;
   totalPoints?: number;
@@ -28,18 +33,33 @@ interface RankingUser {
 
 interface RankingItem {
   id: string;
-  type: "general" | "tournament";
+  type: "general" | "tournament" | "round";
   title: string;
   subtitle?: string;
   logo?: string;
   users: RankingUser[];
 }
 
-interface RankingCardProps {
-  currentUserId?: string;
-  delay?: number;
-  autoPlayInterval?: number;
-}
+const RankChangeIndicator = ({ rank, previousRank }: { rank: number; previousRank?: number | null }) => {
+  if (!previousRank || previousRank === rank) {
+    return <Minus className="w-2.5 h-2.5 text-gray-500" />;
+  }
+  const diff = previousRank - rank;
+  if (diff > 0) {
+    return (
+      <div className="flex items-center gap-0.5">
+        <TrendingUp className="w-2.5 h-2.5 text-green-400" />
+        <span className="text-[8px] font-bold text-green-400 tabular-nums">+{diff}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-0.5">
+      <TrendingDown className="w-2.5 h-2.5 text-red-400" />
+      <span className="text-[8px] font-bold text-red-400 tabular-nums">{diff}</span>
+    </div>
+  );
+};
 
 const PositionIcon = ({
   position,
@@ -53,7 +73,7 @@ const PositionIcon = ({
   if (position === 3) return <Award className="w-3 h-3 text-amber-500" />;
   return (
     <span
-      className={`font-display font-black text-[10px] ${isCurrentUser ? "text-brm-secondary" : "text-gray-500"}`}
+      className={`font-display font-black text-[10px] tabular-nums ${isCurrentUser ? "text-brm-secondary" : "text-gray-500"}`}
     >
       {position}
     </span>
@@ -64,12 +84,12 @@ const UserItem = ({
   user,
   isCurrentUser,
   index,
-  showTotalPoints = false,
+  showRankChange = false,
 }: {
   user: RankingUser;
   isCurrentUser: boolean;
   index: number;
-  showTotalPoints?: boolean;
+  showRankChange?: boolean;
 }) => {
   const position = user.rank;
   const isTop3 = position <= 3;
@@ -79,7 +99,7 @@ const UserItem = ({
     if (position === 1) return "bg-linear-to-r from-yellow-500/30 to-yellow-600/20";
     if (position === 2) return "bg-linear-to-r from-gray-400/20 to-gray-500/10";
     if (position === 3) return "bg-linear-to-r from-amber-600/20 to-amber-700/10";
-    return "bg-brm-card/50 dark:bg-slate-800/50 hover:bg-brm-card-elevated/50 dark:hover:bg-slate-700/50";
+    return "bg-brm-card/50 dark:bg-slate-800/50";
   };
 
   return (
@@ -87,19 +107,18 @@ const UserItem = ({
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.05, duration: 0.25 }}
-      className="relative"
     >
       <div
         className={`
-          flex items-center gap-1.5 py-1 px-2
+          flex items-center gap-1.5 py-0.5 sm:py-1 px-2
           transition-all duration-300
           -skew-x-6
           ${getBgColor()}
-          ${isTop3 ? "border-l-2" : ""}
+          ${isTop3 || isCurrentUser ? "border-l-2" : ""}
           ${position === 1 ? "border-l-yellow-400" : ""}
           ${position === 2 ? "border-l-gray-300" : ""}
           ${position === 3 ? "border-l-amber-600" : ""}
-          ${isCurrentUser ? "border-l-brm-secondary border-l-2" : ""}
+          ${isCurrentUser && !isTop3 ? "border-l-brm-secondary" : ""}
         `}
       >
         <div className="flex items-center gap-1.5 w-full skew-x-6">
@@ -126,160 +145,192 @@ const UserItem = ({
             {user.name}
           </span>
 
-          <div className="flex items-center gap-1 shrink-0">
-            <span
-              className={`
-                font-display font-black text-xs tabular-nums
-                ${position === 1 ? "text-yellow-400" : "text-brm-text-primary dark:text-white"}
-                ${isCurrentUser ? "text-brm-secondary" : ""}
-              `}
-            >
-              {user.points}
-            </span>
-            {showTotalPoints &&
-              user.totalPoints !== undefined &&
-              user.totalPoints !== user.points && (
-                <span className="text-[8px] text-brm-text-muted dark:text-gray-500">/{user.totalPoints}</span>
-              )}
-          </div>
+          {showRankChange && (
+            <div className="shrink-0">
+              <RankChangeIndicator rank={user.rank} previousRank={user.previousRank} />
+            </div>
+          )}
+
+          <span
+            className={`
+              font-display font-black text-xs tabular-nums shrink-0
+              ${position === 1 ? "text-yellow-400" : "text-brm-text-primary dark:text-white"}
+              ${isCurrentUser ? "text-brm-secondary" : ""}
+            `}
+          >
+            {user.points}
+          </span>
         </div>
       </div>
     </motion.div>
   );
 };
 
-const CarouselIndicator = ({
-  items,
-  currentIndex,
-  onSelect,
-}: {
-  items: RankingItem[];
-  currentIndex: number;
-  onSelect: (index: number) => void;
-}) => {
-  return (
-    <div className="flex items-center justify-center gap-1 mt-2">
-      {items.map((item, index) => (
-        <button
-          key={item.id}
-          onClick={() => onSelect(index)}
-          className={`
-            w-1.5 h-1.5 rounded-full transition-all duration-300
-            ${
-              index === currentIndex
-                ? item.type === "general"
-                  ? "bg-brm-purple w-3"
-                  : "bg-brm-primary w-3"
-                : "bg-gray-600 hover:bg-gray-500"
-            }
-          `}
-          aria-label={`Ver ${item.title}`}
-        />
-      ))}
-    </div>
-  );
-};
-
-export function RankingCard({
+export function RankingCardWithData({
   currentUserId,
   delay = 0,
-  autoPlayInterval = 5000,
-}: RankingCardProps) {
+}: {
+  currentUserId?: string;
+  delay?: number;
+}) {
   const router = useRouter();
+  const { currentTournament, computedRound } = useTournamentContext();
   const [carouselItems, setCarouselItems] = useState<RankingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
     const fetchRankings = async () => {
+      setLoading(true);
       try {
         const supabase = createClient();
+        const items: RankingItem[] = [];
 
         const { data: usersData } = await supabase
-          .from("user_profiles")
-          .select("id, first_name, last_name, total_points, avatar_url")
-          .eq("is_public", true)
-          .order("total_points", { ascending: false })
+          .from("users_profiles")
+          .select("id, name, points, favorite_team_logo")
+          .order("points", { ascending: false })
           .limit(10);
 
         type UserRow = {
           id: string;
-          first_name: string;
-          last_name: string | null;
-          total_points: number;
-          avatar_url: string | null;
+          name: string;
+          points: number;
+          favorite_team_logo: string | null;
         };
 
-        const users = usersData as UserRow[] | null;
+        const users = (usersData as UserRow[] | null) || [];
 
-        const items: RankingItem[] = [];
-
-        if (users && users.length > 0) {
-          const { data: usersWithTeams } = await supabase
-            .from("users")
-            .select("id, favorite_team_id")
-            .in(
-              "id",
-              users.map((u) => u.id)
-            );
-
-          type UserTeamRow = {
-            id: string;
-            favorite_team_id: string | null;
-          };
-
-          const userTeams = usersWithTeams as UserTeamRow[] | null;
-          const teamIds = userTeams
-            ?.filter((u) => u.favorite_team_id)
-            .map((u) => u.favorite_team_id as string) || [];
-
-          const teamsMap = new Map<string, { name: string; logo_url: string | null }>();
-
-          if (teamIds.length > 0) {
-            const { data: teamsData } = await supabase
-              .from("teams")
-              .select("id, name, logo_url")
-              .in("id", teamIds);
-
-            type TeamRow = {
-              id: string;
-              name: string;
-              logo_url: string | null;
-            };
-
-            const teams = teamsData as TeamRow[] | null;
-            if (teams) {
-              teams.forEach((t) => teamsMap.set(t.id, { name: t.name, logo_url: t.logo_url }));
-            }
-          }
-
-          const userTeamsMap = new Map<string, string | null>();
-          if (userTeams) {
-            userTeams.forEach((u) => userTeamsMap.set(u.id, u.favorite_team_id));
-          }
-
-          const generalRanking: RankingUser[] = users.map((u, idx) => {
-            const teamId = userTeamsMap.get(u.id);
-            const team = teamId ? teamsMap.get(teamId) : null;
-
-            return {
-              id: u.id,
-              name: `${u.first_name}${u.last_name ? ` ${u.last_name.charAt(0)}.` : ""}`,
-              points: u.total_points,
-              rank: idx + 1,
-              teamLogo: team?.logo_url,
-              teamName: team?.name,
-            };
-          });
+        if (users.length > 0) {
+          const generalRanking: RankingUser[] = users.map((u, idx) => ({
+            id: u.id,
+            name: u.name || "Jogador",
+            points: u.points || 0,
+            rank: idx + 1,
+            teamLogo: u.favorite_team_logo || null,
+          }));
 
           items.push({
             id: "general",
             type: "general",
             title: "Ranking",
             subtitle: "Geral",
-            users: generalRanking.slice(0, 5),
+            users: generalRanking.slice(0, 10),
           });
+        }
+
+        if (currentTournament) {
+          const { data: tournamentRanking } = await supabase
+            .from("user_tournament_points")
+            .select("user_id, points, previous_rank")
+            .eq("tournament_id", currentTournament.id)
+            .order("points", { ascending: false })
+            .limit(10);
+
+          type TournamentRankRow = {
+            user_id: string;
+            points: number;
+            previous_rank: number | null;
+          };
+
+          const tRanking = (tournamentRanking as TournamentRankRow[] | null) || [];
+
+          if (tRanking.length > 0) {
+            const userIds = tRanking.map((r) => r.user_id);
+            const { data: profilesData } = await supabase
+              .from("users_profiles")
+              .select("id, firebase_id, name, favorite_team_logo")
+              .in("firebase_id", userIds);
+
+            type ProfileRow = {
+              id: string;
+              firebase_id: string;
+              name: string;
+              favorite_team_logo: string | null;
+            };
+
+            const profiles = (profilesData as ProfileRow[] | null) || [];
+            const profileMap = new Map(profiles.map((p) => [p.firebase_id, p]));
+
+            const tournamentUsers: RankingUser[] = tRanking.map((r, idx) => {
+              const profile = profileMap.get(r.user_id);
+              return {
+                id: r.user_id,
+                name: profile?.name || "Jogador",
+                points: r.points || 0,
+                rank: idx + 1,
+                previousRank: r.previous_rank,
+                teamLogo: profile?.favorite_team_logo || null,
+              };
+            });
+
+            items.push({
+              id: `tournament-${currentTournament.id}`,
+              type: "tournament",
+              title: currentTournament.short_name || currentTournament.name,
+              subtitle: "Campeonato",
+              logo: currentTournament.logo_url,
+              users: tournamentUsers,
+            });
+          }
+
+          if (computedRound > 0) {
+            const { data: roundRanking } = await supabase
+              .from("user_round_points")
+              .select("user_id, points, rank, previous_rank")
+              .eq("tournament_id", currentTournament.id)
+              .eq("round_number", computedRound)
+              .order("points", { ascending: false })
+              .limit(10);
+
+            type RoundRankRow = {
+              user_id: string;
+              points: number;
+              rank: number | null;
+              previous_rank: number | null;
+            };
+
+            const rRanking = (roundRanking as RoundRankRow[] | null) || [];
+
+            if (rRanking.length > 0) {
+              const userIds = rRanking.map((r) => r.user_id);
+              const { data: profilesData } = await supabase
+                .from("users_profiles")
+                .select("id, firebase_id, name, favorite_team_logo")
+                .in("firebase_id", userIds);
+
+              type ProfileRow = {
+                id: string;
+                firebase_id: string;
+                name: string;
+                favorite_team_logo: string | null;
+              };
+
+              const profiles = (profilesData as ProfileRow[] | null) || [];
+              const profileMap = new Map(profiles.map((p) => [p.firebase_id, p]));
+
+              const roundUsers: RankingUser[] = rRanking.map((r, idx) => {
+                const profile = profileMap.get(r.user_id);
+                return {
+                  id: r.user_id,
+                  name: profile?.name || "Jogador",
+                  points: r.points || 0,
+                  rank: r.rank || idx + 1,
+                  previousRank: r.previous_rank,
+                  teamLogo: profile?.favorite_team_logo || null,
+                };
+              });
+
+              items.push({
+                id: `round-${currentTournament.id}-${computedRound}`,
+                type: "round",
+                title: `Rodada ${computedRound}`,
+                subtitle: currentTournament.short_name || currentTournament.name,
+                logo: currentTournament.logo_url,
+                users: roundUsers,
+              });
+            }
+          }
         }
 
         if (items.length === 0) {
@@ -293,15 +344,10 @@ export function RankingCard({
         }
 
         setCarouselItems(items);
+        setCurrentIndex(0);
       } catch {
         setCarouselItems([
-          {
-            id: "general",
-            type: "general",
-            title: "Ranking",
-            subtitle: "Geral",
-            users: [],
-          },
+          { id: "general", type: "general", title: "Ranking", subtitle: "Geral", users: [] },
         ]);
       } finally {
         setLoading(false);
@@ -309,17 +355,7 @@ export function RankingCard({
     };
 
     fetchRankings();
-  }, []);
-
-  useEffect(() => {
-    if (carouselItems.length <= 1 || isPaused) return;
-
-    const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % carouselItems.length);
-    }, autoPlayInterval);
-
-    return () => clearInterval(interval);
-  }, [carouselItems.length, autoPlayInterval, isPaused]);
+  }, [currentTournament, computedRound]);
 
   const goToNext = useCallback(() => {
     setCurrentIndex((prev) => (prev + 1) % carouselItems.length);
@@ -362,21 +398,18 @@ export function RankingCard({
 
   const currentItem = carouselItems[currentIndex];
   const isGeneralRanking = currentItem?.type === "general";
+  const showRankChange = currentItem?.type === "tournament";
 
   return (
     <VerticalTile
       title={currentItem?.title || "Ranking"}
       subtitle={currentItem?.subtitle}
-      colorTheme={isGeneralRanking ? "purple" : "blue"}
+      colorTheme={isGeneralRanking ? "purple" : currentItem?.type === "round" ? "lime" : "blue"}
       delay={delay}
       onClick={handleNavigateToRanking}
     >
-      <div
-        className="flex flex-col h-full"
-        onMouseEnter={() => setIsPaused(true)}
-        onMouseLeave={() => setIsPaused(false)}
-      >
-        <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between mb-2 shrink-0">
           <div className="flex items-center gap-2">
             {currentItem?.logo ? (
               <div className="relative w-5 h-5">
@@ -397,23 +430,17 @@ export function RankingCard({
           {carouselItems.length > 1 && (
             <div className="flex items-center gap-1">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  goToPrev();
-                }}
+                onClick={(e) => { e.stopPropagation(); goToPrev(); }}
                 className="p-0.5 hover:bg-white/10 rounded transition-colors"
                 aria-label="Anterior"
               >
                 <ChevronLeft className="w-3 h-3 text-gray-400" />
               </button>
-              <span className="text-[9px] text-gray-500 font-display">
+              <span className="text-[9px] text-gray-500 font-display tabular-nums">
                 {currentIndex + 1}/{carouselItems.length}
               </span>
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  goToNext();
-                }}
+                onClick={(e) => { e.stopPropagation(); goToNext(); }}
                 className="p-0.5 hover:bg-white/10 rounded transition-colors"
                 aria-label="Próximo"
               >
@@ -423,7 +450,7 @@ export function RankingCard({
           )}
         </div>
 
-        <div className="flex-1 flex flex-col gap-0.5 overflow-hidden">
+        <div className="flex-1 flex flex-col gap-0.5 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentItem?.id}
@@ -434,7 +461,7 @@ export function RankingCard({
               className="flex flex-col gap-0.5"
             >
               {currentItem?.users.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                <div className="flex flex-col items-center justify-center py-6 text-gray-400">
                   <Trophy className="w-8 h-8 mb-2 opacity-30" />
                   <p className="text-xs text-brm-text-muted">Sem participantes ainda</p>
                 </div>
@@ -445,7 +472,7 @@ export function RankingCard({
                     user={user}
                     isCurrentUser={user.id === currentUserId}
                     index={index}
-                    showTotalPoints={!isGeneralRanking}
+                    showRankChange={showRankChange}
                   />
                 ))
               )}
@@ -454,25 +481,40 @@ export function RankingCard({
         </div>
 
         {carouselItems.length > 1 && (
-          <CarouselIndicator
-            items={carouselItems}
-            currentIndex={currentIndex}
-            onSelect={setCurrentIndex}
-          />
+          <div className="flex items-center justify-center gap-1 mt-1.5 shrink-0">
+            {carouselItems.map((item, index) => (
+              <button
+                key={item.id}
+                onClick={(e) => { e.stopPropagation(); setCurrentIndex(index); }}
+                className={`
+                  h-1.5 rounded-full transition-all duration-300
+                  ${
+                    index === currentIndex
+                      ? item.type === "general"
+                        ? "bg-brm-purple w-4"
+                        : item.type === "round"
+                          ? "bg-brm-secondary w-4"
+                          : "bg-brm-primary w-4"
+                      : "bg-gray-600 hover:bg-gray-500 w-1.5"
+                  }
+                `}
+                aria-label={`Ver ${item.title}`}
+              />
+            ))}
+          </div>
         )}
 
-        <div className="mt-2">
+        <div className="mt-2 shrink-0">
           <motion.button
             whileTap={{ scale: 0.98 }}
-            onClick={handleNavigateToRanking}
+            onClick={(e) => { e.stopPropagation(); handleNavigateToRanking(); }}
             className={`
               w-full py-2 cursor-pointer
               ${
                 isGeneralRanking
-                  ? "bg-brm-purple/20 hover:bg-brm-purple/40 border-l-brm-purple text-brm-purple-foreground hover:text-white"
-                  : "bg-brm-primary/20 hover:bg-brm-primary/40 border-l-brm-primary text-brm-primary hover:text-white"
+                  ? "bg-brm-purple/20 hover:bg-brm-purple/40 text-brm-text-primary hover:text-white"
+                  : "bg-brm-primary/20 hover:bg-brm-primary/40 text-brm-text-primary hover:text-white"
               }
-              border-l-4
               text-[10px] font-display font-bold uppercase
               transition-colors duration-300
               flex items-center justify-center gap-1
@@ -488,14 +530,4 @@ export function RankingCard({
       </div>
     </VerticalTile>
   );
-}
-
-export function RankingCardWithData({
-  currentUserId,
-  delay = 0,
-}: {
-  currentUserId?: string;
-  delay?: number;
-}) {
-  return <RankingCard currentUserId={currentUserId} delay={delay} />;
 }
