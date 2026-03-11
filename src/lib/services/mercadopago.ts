@@ -92,3 +92,86 @@ export async function createDepositPreference(
 export async function getPaymentById(paymentId: string | number) {
   return paymentClient.get({ id: Number(paymentId) });
 }
+
+interface PayerInfo {
+  email: string;
+  firstName: string;
+  lastName?: string;
+  identification?: {
+    type: string;
+    number: string;
+  };
+}
+
+interface CreateCardPaymentParams {
+  transactionId: string;
+  amount: number;
+  token: string;
+  paymentMethodId: string;
+  installments: number;
+  issuerId?: string;
+  payer: PayerInfo;
+  description: string;
+}
+
+export async function createCardPayment(params: CreateCardPaymentParams) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  return paymentClient.create({
+    body: {
+      transaction_amount: params.amount,
+      token: params.token,
+      description: params.description,
+      installments: params.installments,
+      payment_method_id: params.paymentMethodId,
+      issuer_id: params.issuerId ? Number(params.issuerId) : undefined,
+      payer: {
+        email: params.payer.email,
+        first_name: params.payer.firstName,
+        last_name: params.payer.lastName,
+        identification: params.payer.identification,
+      },
+      external_reference: params.transactionId,
+      notification_url: `${appUrl}/api/payments/webhook`,
+      statement_descriptor: "BR MASTERS",
+    },
+    requestOptions: {
+      idempotencyKey: params.transactionId,
+    },
+  });
+}
+
+interface CreatePixPaymentParams {
+  transactionId: string;
+  amount: number;
+  payer: PayerInfo;
+  description: string;
+  expirationMinutes?: number;
+}
+
+export async function createPixPayment(params: CreatePixPaymentParams) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const expMinutes = params.expirationMinutes || 30;
+  const expirationDate = new Date(Date.now() + expMinutes * 60 * 1000);
+
+  return paymentClient.create({
+    body: {
+      transaction_amount: params.amount,
+      description: params.description,
+      payment_method_id: "pix",
+      payer: {
+        email: params.payer.email,
+        first_name: params.payer.firstName,
+        last_name: params.payer.lastName,
+        identification: params.payer.identification,
+      },
+      external_reference: params.transactionId,
+      notification_url: `${appUrl}/api/payments/webhook`,
+      statement_descriptor: "BR MASTERS",
+      date_of_expiration: expirationDate.toISOString(),
+    },
+    requestOptions: {
+      idempotencyKey: `pix_${params.transactionId}`,
+    },
+  });
+}

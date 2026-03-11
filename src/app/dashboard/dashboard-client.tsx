@@ -19,7 +19,7 @@ import {
   PredictionModalSimple,
 } from "@/components/bento-grid";
 import type { Match, MatchPrediction } from "@/components/bento-grid";
-import { DepositModal } from "@/components/payments/deposit-modal";
+import { PrizePoolVisualization } from "@/components/dashboard/prize-pool-visualization";
 import { signOut } from "@/lib/auth/auth-service";
 import { createClient } from "@/lib/supabase/client";
 
@@ -73,7 +73,6 @@ export function DashboardClient({
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [selectedPrediction, setSelectedPrediction] = useState<MatchPrediction | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isDepositOpen, setIsDepositOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleLogout = async () => {
@@ -83,7 +82,7 @@ export function DashboardClient({
   };
 
   const handleDeposit = () => {
-    setIsDepositOpen(true);
+    router.push("/checkout");
   };
 
   const handleMatchClick = useCallback((match: Match, prediction?: MatchPrediction) => {
@@ -205,6 +204,8 @@ export function DashboardClient({
                   delay={0.25}
                 />
 
+                <PrizePoolVisualization />
+
                 <UserStatsCard stats={userStats} delay={0.3} />
 
                 <StandingsCard delay={0.35} />
@@ -223,10 +224,6 @@ export function DashboardClient({
         onClose={handleCloseModal}
         onSubmit={handleSubmitPrediction}
         initialPrediction={selectedPrediction}
-      />
-      <DepositModal
-        isOpen={isDepositOpen}
-        onOpenChange={setIsDepositOpen}
       />
     </TournamentProvider>
   );
