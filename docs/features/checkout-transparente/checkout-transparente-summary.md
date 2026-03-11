@@ -48,6 +48,43 @@ Mercado Pago → POST /api/payments/webhook → Parse body/query → Verify sign
 | `src/app/dashboard/dashboard-client.tsx` | Replaced DepositModal with router.push("/checkout"), added PrizePoolVisualization |
 | `.env.local` / `.env.example` | Added `NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY` |
 
+## Production Environment Requirements
+
+### Critical Environment Variables
+The following environment variables **MUST** be set correctly in production:
+
+```bash
+# REQUIRED: Must be the production HTTPS URL
+NEXT_PUBLIC_APP_URL=https://brmasters.febrate.com
+
+# REQUIRED: Mercado Pago credentials
+MERCADOPAGO_ACCESS_TOKEN=<your_production_access_token>
+MERCADOPAGO_PUBLIC_KEY=<your_public_key>
+NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY=<your_public_key>
+MERCADOPAGO_WEBHOOK_SECRET=<from_mp_webhook_settings>
+
+# REQUIRED: Supabase service role for webhook writes
+SUPABASE_SERVICE_ROLE_KEY=<your_service_role_key>
+```
+
+### Webhook Configuration
+The webhook URL must be configured in Mercado Pago dashboard:
+- **Production URL:** `https://brmasters.febrate.com/api/payments/webhook`
+- **Topics:** `payment` (minimum required)
+
+### Local Development Notes
+- `notification_url` is automatically **skipped** for localhost URLs (MP rejects non-HTTPS URLs)
+- For local testing, payments will work but webhook notifications won't be received
+- Use the `/api/payments/status/[id]` polling endpoint to check payment status locally
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `notification_url attribute must be url valid` | Using localhost URL | Set `NEXT_PUBLIC_APP_URL` to production HTTPS URL |
+| `Unauthorized use of live credentials` | Production token with test email | Use real email addresses or switch to sandbox credentials |
+| `502 webhook errors` | Server not responding | Check `SUPABASE_SERVICE_ROLE_KEY` and `MERCADOPAGO_ACCESS_TOKEN` are set |
+
 ## Database Changes
 
 ### Migration: `add_prize_pool_category_and_aggregation_view`

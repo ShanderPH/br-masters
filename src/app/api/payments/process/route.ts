@@ -135,8 +135,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Erro ao registrar transação" }, { status: 500 });
     }
 
+    const email = payerEmail || profileData.email || user.email;
+    if (!email) {
+      return NextResponse.json(
+        { error: "Email do usuário não encontrado. Por favor, atualize seu perfil." },
+        { status: 400 }
+      );
+    }
+
     const payer = {
-      email: payerEmail || profileData.email,
+      email,
       firstName: payerFirstName || profileData.first_name,
       lastName: payerLastName || profileData.last_name || undefined,
       identification:
@@ -242,9 +250,30 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("[Payments] Error processing payment:", error);
+    
+    // Extract detailed error from Mercado Pago API response
+    let errorMessage = "Erro ao processar pagamento";
+    let errorDetails = null;
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      // Check for MP API error structure
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mpError = error as any;
+      if (mpError.cause) {
+        errorDetails = mpError.cause;
+        console.error("[Payments] MP API Error cause:", mpError.cause);
+      }
+      if (mpError.response?.data) {
+        errorDetails = mpError.response.data;
+        console.error("[Payments] MP API Error response:", mpError.response.data);
+      }
+    }
+    
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Erro ao processar pagamento",
+        error: errorMessage,
+        details: errorDetails,
       },
       { status: 500 }
     );

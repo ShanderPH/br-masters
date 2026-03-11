@@ -280,7 +280,11 @@ export function CheckoutClient({
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Erro ao gerar PIX");
+        if (!res.ok) {
+          const errorMsg = data.error || "Erro ao gerar PIX";
+          const details = data.details ? ` (${JSON.stringify(data.details)})` : "";
+          throw new Error(`${errorMsg}${details}`);
+        }
 
         setTransactionId(data.transactionId);
         setPixQrCode(data.pix.qrCode);

@@ -116,6 +116,10 @@ interface CreateCardPaymentParams {
 
 export async function createCardPayment(params: CreateCardPaymentParams) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  
+  // Only include notification_url for production (HTTPS URLs)
+  const isProduction = appUrl.startsWith("https://");
+  const notificationUrl = isProduction ? `${appUrl}/api/payments/webhook` : undefined;
 
   return paymentClient.create({
     body: {
@@ -132,7 +136,7 @@ export async function createCardPayment(params: CreateCardPaymentParams) {
         identification: params.payer.identification,
       },
       external_reference: params.transactionId,
-      notification_url: `${appUrl}/api/payments/webhook`,
+      ...(notificationUrl && { notification_url: notificationUrl }),
       statement_descriptor: "BR MASTERS",
     },
     requestOptions: {
@@ -150,11 +154,28 @@ interface CreatePixPaymentParams {
 }
 
 export async function createPixPayment(params: CreatePixPaymentParams) {
+  if (!accessToken) {
+    throw new Error("MERCADOPAGO_ACCESS_TOKEN não configurado no servidor");
+  }
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const expMinutes = params.expirationMinutes || 30;
   const expirationDate = new Date(Date.now() + expMinutes * 60 * 1000);
+  
+  // Only include notification_url for production (HTTPS URLs)
+  // MP rejects localhost URLs as invalid
+  const isProduction = appUrl.startsWith("https://");
+  const notificationUrl = isProduction ? `${appUrl}/api/payments/webhook` : undefined;
 
-  return paymentClient.create({
+  console.log("[MercadoPago] Creating PIX payment:", {
+    amount: params.amount,
+    email: params.payer.email,
+    transactionId: params.transactionId,
+    notificationUrl: notificationUrl || "(skipped - localhost)",
+  });
+
+  try {
+    const result = await paymentClient.create({
     body: {
       transaction_amount: params.amount,
       description: params.description,
@@ -166,7 +187,7 @@ export async function createPixPayment(params: CreatePixPaymentParams) {
         identification: params.payer.identification,
       },
       external_reference: params.transactionId,
-      notification_url: `${appUrl}/api/payments/webhook`,
+      ...(notificationUrl && { notification_url: notificationUrl }),
       statement_descriptor: "BR MASTERS",
       date_of_expiration: expirationDate.toISOString(),
     },
@@ -174,4 +195,17 @@ export async function createPixPayment(params: CreatePixPaymentParams) {
       idempotencyKey: `pix_${params.transactionId}`,
     },
   });
+    
+    console.log("[MercadoPago] PIX payment created:", {
+      id: result.id,
+      status: result.status,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      hasQrCode: !!(result as any).point_of_interaction,
+    });
+    
+    return result;
+  } catch (error) {
+    console.error("[MercadoPago] Error creating PIX payment:", error);
+    throw error;
+  }
 }
