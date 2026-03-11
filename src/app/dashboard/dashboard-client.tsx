@@ -19,7 +19,6 @@ import {
   PredictionModalSimple,
 } from "@/components/bento-grid";
 import type { Match, MatchPrediction } from "@/components/bento-grid";
-import { PrizePoolVisualization } from "@/components/dashboard/prize-pool-visualization";
 import { signOut } from "@/lib/auth/auth-service";
 import { createClient } from "@/lib/supabase/client";
 
@@ -203,8 +202,6 @@ export function DashboardClient({
                   onClick={handleDeposit}
                   delay={0.25}
                 />
-
-                <PrizePoolVisualization />
 
                 <UserStatsCard stats={userStats} delay={0.3} />
 
