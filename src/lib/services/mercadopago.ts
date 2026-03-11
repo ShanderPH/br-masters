@@ -115,7 +115,7 @@ interface CreateCardPaymentParams {
 }
 
 export async function createCardPayment(params: CreateCardPaymentParams) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
   
   // Only include notification_url for production (HTTPS URLs)
   const isProduction = appUrl.startsWith("https://");
@@ -158,7 +158,7 @@ export async function createPixPayment(params: CreatePixPaymentParams) {
     throw new Error("MERCADOPAGO_ACCESS_TOKEN não configurado no servidor");
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
   const expMinutes = params.expirationMinutes || 30;
   const expirationDate = new Date(Date.now() + expMinutes * 60 * 1000);
   
