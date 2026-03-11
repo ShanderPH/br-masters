@@ -20,9 +20,24 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { TextField, Label, Input, FieldError } from "@heroui/react";
+import { createClient } from "@/lib/supabase/client";
+
 import { CheckoutStepper } from "@/components/checkout/checkout-stepper";
 import { PaymentTimer } from "@/components/checkout/payment-timer";
 import { useMercadoPago } from "@/hooks/use-mercadopago";
+
+const TEST_EMAIL_DOMAINS = ["houseofguess.app", "test.com", "example.com"];
+
+function isTestEmail(email: string): boolean {
+  const domain = email.split("@")[1]?.toLowerCase();
+  return TEST_EMAIL_DOMAINS.some((d) => domain?.includes(d));
+}
+
+function isValidEmail(email: string): boolean {
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  return emailRegex.test(email) && !isTestEmail(email);
+}
 
 type DepositCategory = "tournament_prize" | "round_prize" | "match_prize";
 type PaymentMethod = "card" | "pix";
@@ -84,19 +99,29 @@ const slideVariants = {
 };
 
 export function CheckoutClient({
-  userId: _userId,
+  userId,
   userEmail,
   userName,
   userLastName,
 }: CheckoutClientProps) {
   const router = useRouter();
   const mp = useMercadoPago();
+  const supabase = createClient();
 
   const [step, setStep] = useState<CheckoutStep>(0);
   const [direction, setDirection] = useState(1);
   const [category, setCategory] = useState<DepositCategory | null>(null);
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
+
+  // Email state - for users with test emails
+  const needsEmailUpdate = isTestEmail(userEmail);
+  const [email, setEmail] = useState(needsEmailUpdate ? "" : userEmail);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const emailError = emailTouched && email.length > 0 && !isValidEmail(email)
+    ? "Digite um e-mail válido (não pode ser e-mail de teste)"
+    : null;
+  const isEmailValid = !needsEmailUpdate || isValidEmail(email);
 
   // Card state
   const [cardNumber, setCardNumber] = useState("");
@@ -264,6 +289,21 @@ export function CheckoutClient({
         goNext();
       } else {
         // PIX
+        const effectiveEmail = needsEmailUpdate ? email : userEmail;
+
+        // Update user email in Supabase if it was changed
+        if (needsEmailUpdate && isValidEmail(email)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { error: updateError } = await (supabase as any)
+            .from("user_profiles")
+            .update({ email })
+            .eq("id", userId);
+          
+          if (updateError) {
+            console.warn("[Checkout] Failed to update user email:", updateError);
+          }
+        }
+
         const res = await fetch("/api/payments/process", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -271,7 +311,7 @@ export function CheckoutClient({
             amount: numAmount,
             category,
             paymentMethod: "pix",
-            payerEmail: userEmail,
+            payerEmail: effectiveEmail,
             payerFirstName: userName,
             payerLastName: userLastName || undefined,
             payerDocType: docType,
@@ -303,7 +343,8 @@ export function CheckoutClient({
   }, [
     isProcessing, paymentMethod, mp, cardExpiry, cardNumber, cardHolder,
     cardCvv, docType, docNumber, numAmount, category, detectedPaymentMethod,
-    installments, userEmail, userName, userLastName,
+    installments, userEmail, userName, userLastName, email, needsEmailUpdate,
+    supabase, userId,
   ]);
 
   const copyPixCode = async () => {
@@ -761,6 +802,39 @@ export function CheckoutClient({
                   Pagamento via PIX
                 </h2>
 
+                {/* Email field - only shown when user has test email */}
+                {needsEmailUpdate && (
+                  <TextField
+                    isRequired
+                    isInvalid={!!emailError}
+                    name="email"
+                    type="email"
+                    className="w-full"
+                    onChange={(value) => {
+                      setEmail(value);
+                      setEmailTouched(true);
+                    }}
+                  >
+                    <Label className="text-[10px] text-white/40 uppercase tracking-wider font-bold block mb-1">
+                      E-mail para pagamento
+                    </Label>
+                    <Input
+                      value={email}
+                      placeholder="seu@email.com"
+                      className="bg-white/3 border border-white/6 p-3 text-white text-sm outline-none w-full placeholder:text-white/20"
+                    />
+                    {emailError ? (
+                      <FieldError className="text-[10px] text-[#D63384] mt-1">
+                        {emailError}
+                      </FieldError>
+                    ) : (
+                      <p className="text-[10px] text-white/30 mt-1">
+                        Informe um e-mail válido para receber o comprovante
+                      </p>
+                    )}
+                  </TextField>
+                )}
+
                 {/* CPF for PIX */}
                 <div className="bg-white/3 border border-white/6 p-3">
                   <label className="text-[10px] text-white/40 uppercase tracking-wider font-bold block mb-1">
@@ -792,12 +866,12 @@ export function CheckoutClient({
 
                 <button
                   onClick={handleProcessPayment}
-                  disabled={isProcessing}
+                  disabled={isProcessing || !isEmailValid}
                   className={`
                     w-full py-3.5 font-display font-black uppercase text-sm tracking-wider
                     flex items-center justify-center gap-2 transition-all
                     ${
-                      !isProcessing
+                      !isProcessing && isEmailValid
                         ? "bg-[#25B8B8] text-white hover:brightness-110"
                         : "bg-white/5 text-white/20 cursor-not-allowed"
                     }
