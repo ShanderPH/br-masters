@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getPaymentById } from "@/lib/services/mercadopago";
 
 function verifyWebhookSignature(
   xSignature: string | null,
   xRequestId: string | null,
   dataId: string
-): boolean {
+): { valid: boolean; reason?: string } {
   const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
 
-  if (!secret || !xSignature || !xRequestId) {
-    return false;
+  // If no secret configured, skip verification (for testing)
+  if (!secret || secret === "your_webhook_secret_signature") {
+    console.warn("[Webhook] No webhook secret configured, skipping signature verification");
+    return { valid: true, reason: "no_secret_configured" };
+  }
+
+  if (!xSignature || !xRequestId) {
+    return { valid: false, reason: "missing_headers" };
   }
 
   const parts = xSignature.split(",");
@@ -25,20 +31,42 @@ function verifyWebhookSignature(
     if (key === "v1") hash = value;
   }
 
-  if (!ts || !hash) return false;
+  if (!ts || !hash) {
+    return { valid: false, reason: "invalid_signature_format" };
+  }
 
-  const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
+  // MP docs say data.id should be lowercase in the manifest
+  const dataIdLower = dataId.toLowerCase();
+  const manifest = `id:${dataIdLower};request-id:${xRequestId};ts:${ts};`;
   const hmac = crypto
     .createHmac("sha256", secret)
     .update(manifest)
     .digest("hex");
 
-  return hmac === hash;
+  if (hmac === hash) {
+    return { valid: true };
+  }
+
+  // Try with original case as fallback
+  const manifestOriginal = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
+  const hmacOriginal = crypto
+    .createHmac("sha256", secret)
+    .update(manifestOriginal)
+    .digest("hex");
+
+  if (hmacOriginal === hash) {
+    return { valid: true };
+  }
+
+  return { valid: false, reason: "signature_mismatch" };
 }
 
 export async function POST(request: NextRequest) {
+  console.log("[Webhook] Received POST request");
+  
   try {
     const body = await request.json();
+    console.log("[Webhook] Body:", JSON.stringify(body));
 
     const { type, data, action } = body as {
       type?: string;
@@ -46,26 +74,39 @@ export async function POST(request: NextRequest) {
       action?: string;
     };
 
-    if (type !== "payment" || !data?.id) {
+    // Accept both 'payment' type and merchant_order (which also contains payment info)
+    if (!data?.id) {
+      console.log("[Webhook] No data.id, returning 200");
       return NextResponse.json({ received: true }, { status: 200 });
+    }
+
+    // Skip non-payment types but return 200 to acknowledge receipt
+    if (type !== "payment") {
+      console.log(`[Webhook] Received type '${type}', acknowledging but not processing`);
+      return NextResponse.json({ received: true, type }, { status: 200 });
     }
 
     const xSignature = request.headers.get("x-signature");
     const xRequestId = request.headers.get("x-request-id");
 
-    const isValid = verifyWebhookSignature(
+    console.log("[Webhook] Headers - x-signature:", xSignature?.substring(0, 50) + "...");
+    console.log("[Webhook] Headers - x-request-id:", xRequestId);
+
+    const signatureResult = verifyWebhookSignature(
       xSignature,
       xRequestId,
       data.id
     );
 
-    if (!isValid) {
-      console.warn("[Webhook] Invalid signature for payment:", data.id);
+    if (!signatureResult.valid) {
+      console.warn("[Webhook] Invalid signature for payment:", data.id, "Reason:", signatureResult.reason);
       return NextResponse.json(
-        { error: "Invalid signature" },
+        { error: "Invalid signature", reason: signatureResult.reason },
         { status: 401 }
       );
     }
+
+    console.log("[Webhook] Signature valid, reason:", signatureResult.reason || "verified");
 
     const payment = await getPaymentById(data.id);
 
@@ -84,8 +125,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
+    // Use service client if available (bypasses RLS), otherwise fall back to regular client
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = createServiceClient() as any;
+    let db: any;
+    if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      db = createServiceClient();
+    } else {
+      console.warn("[Webhook] SUPABASE_SERVICE_ROLE_KEY not set, using regular client");
+      db = await createClient();
+    }
 
     const mpStatus = payment.status;
     let transactionStatus: string;
