@@ -41,7 +41,7 @@ export async function createDepositPreference(
     transactionId,
   } = params;
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
 
   const preference = await preferenceClient.create({
     body: {
@@ -112,12 +112,13 @@ interface CreateCardPaymentParams {
   issuerId?: string;
   payer: PayerInfo;
   description: string;
+  category?: DepositCategory;
+  categoryLabel?: string;
 }
 
 export async function createCardPayment(params: CreateCardPaymentParams) {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
   
-  // Only include notification_url for production (HTTPS URLs)
   const isProduction = appUrl.startsWith("https://");
   const notificationUrl = isProduction ? `${appUrl}/api/payments/webhook` : undefined;
 
@@ -135,6 +136,22 @@ export async function createCardPayment(params: CreateCardPaymentParams) {
         last_name: params.payer.lastName,
         identification: params.payer.identification,
       },
+      additional_info: {
+        items: [
+          {
+            id: `deposit_${params.category || "general"}_${params.transactionId}`,
+            title: params.description,
+            description: `Dep\u00f3sito para ${params.categoryLabel || "BR Masters"}`,
+            category_id: "services",
+            quantity: 1,
+            unit_price: params.amount,
+          },
+        ],
+        payer: {
+          first_name: params.payer.firstName,
+          last_name: params.payer.lastName,
+        },
+      },
       external_reference: params.transactionId,
       ...(notificationUrl && { notification_url: notificationUrl }),
       statement_descriptor: "BR MASTERS",
@@ -151,6 +168,8 @@ interface CreatePixPaymentParams {
   payer: PayerInfo;
   description: string;
   expirationMinutes?: number;
+  category?: DepositCategory;
+  categoryLabel?: string;
 }
 
 export async function createPixPayment(params: CreatePixPaymentParams) {
@@ -185,6 +204,22 @@ export async function createPixPayment(params: CreatePixPaymentParams) {
         first_name: params.payer.firstName,
         last_name: params.payer.lastName,
         identification: params.payer.identification,
+      },
+      additional_info: {
+        items: [
+          {
+            id: `deposit_${params.category || "general"}_${params.transactionId}`,
+            title: params.description,
+            description: `Dep\u00f3sito para ${params.categoryLabel || "BR Masters"}`,
+            category_id: "services",
+            quantity: 1,
+            unit_price: params.amount,
+          },
+        ],
+        payer: {
+          first_name: params.payer.firstName,
+          last_name: params.payer.lastName,
+        },
       },
       external_reference: params.transactionId,
       ...(notificationUrl && { notification_url: notificationUrl }),

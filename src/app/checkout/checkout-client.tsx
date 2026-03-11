@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Trophy,
@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Sparkles,
   ChevronDown,
+  Clock,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -198,11 +199,22 @@ export function CheckoutClient({
     return () => { cancelled = true; };
   }, [cardNumber, numAmount, mp.isLoaded, mp]);
 
-  // Poll payment status for PIX
+  // "Já fiz o pagamento" button visibility
+  const [showPaidButton, setShowPaidButton] = useState(false);
+  const pollCountRef = useRef(0);
+
+  useEffect(() => {
+    if (step !== 4 || paymentMethod !== "pix" || timerStatus !== "waiting") return;
+    const timer = setTimeout(() => setShowPaidButton(true), 30_000);
+    return () => clearTimeout(timer);
+  }, [step, paymentMethod, timerStatus]);
+
+  // Poll payment status for PIX - with adaptive interval
   useEffect(() => {
     if (!transactionId || paymentMethod !== "pix" || timerStatus !== "waiting") return;
+    pollCountRef.current = 0;
 
-    const interval = setInterval(async () => {
+    const poll = async () => {
       try {
         const res = await fetch(`/api/payments/status/${transactionId}`);
         if (!res.ok) return;
@@ -210,16 +222,30 @@ export function CheckoutClient({
         if (data.status === "approved") {
           setPaymentStatus("approved");
           setTimerStatus("confirmed");
-          clearInterval(interval);
+          return true;
         } else if (data.status === "rejected") {
           setPaymentStatus("rejected");
           setTimerStatus("error");
-          clearInterval(interval);
+          return true;
         }
       } catch {}
-    }, 5000);
+      return false;
+    };
 
-    return () => clearInterval(interval);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      pollCountRef.current++;
+      const count = pollCountRef.current;
+      // First 2 min: every 5s, then every 15s
+      const delay = count <= 24 ? 5_000 : 15_000;
+      timeoutId = setTimeout(async () => {
+        const done = await poll();
+        if (!done) scheduleNext();
+      }, delay);
+    };
+
+    scheduleNext();
+    return () => clearTimeout(timeoutId);
   }, [transactionId, paymentMethod, timerStatus]);
 
   const formatCardNumber = (value: string) => {
@@ -1005,6 +1031,31 @@ export function CheckoutClient({
                         <p className="text-xs text-white/40 text-center">
                           Abra o app do seu banco e escaneie o QR Code ou cole o código PIX
                         </p>
+
+                        <AnimatePresence>
+                          {showPaidButton && (
+                            <motion.div
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0 }}
+                              className="w-full pt-2 space-y-2"
+                            >
+                              <div className="border border-[#25B8B8]/20 bg-[#25B8B8]/5 p-3">
+                                <p className="text-[11px] text-white/50 text-center leading-relaxed">
+                                  Já realizou o pagamento? Você pode voltar ao dashboard.
+                                  Seu depósito será processado automaticamente em instantes.
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => router.push("/dashboard")}
+                                className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-display font-bold uppercase text-xs tracking-wider flex items-center justify-center gap-2 transition-all"
+                              >
+                                <Clock className="w-3.5 h-3.5 text-[#25B8B8]" />
+                                Já fiz o pagamento
+                              </button>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </>
                     )}
 

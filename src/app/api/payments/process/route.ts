@@ -163,6 +163,8 @@ export async function POST(request: NextRequest) {
         issuerId,
         payer,
         description,
+        category,
+        categoryLabel,
       });
 
       const mpStatus = payment.status || "pending";
@@ -217,6 +219,8 @@ export async function POST(request: NextRequest) {
       payer,
       description,
       expirationMinutes: 30,
+      category,
+      categoryLabel,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

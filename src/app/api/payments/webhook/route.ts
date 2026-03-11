@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { MercadoPagoConfig, Payment } from "mercadopago";
 
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 function getDb() {
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -55,12 +57,13 @@ function mapStatus(mpStatus: string): string {
 }
 
 async function processPaymentNotification(paymentId: string, action?: string) {
-  const { Payment, MercadoPagoConfig } = await import("mercadopago");
   const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
   if (!accessToken) throw new Error("MERCADOPAGO_ACCESS_TOKEN not configured");
 
   const mpClient = new MercadoPagoConfig({ accessToken });
   const paymentApi = new Payment(mpClient);
+
+  console.log(`[Webhook] Fetching payment ${paymentId} from MP API...`);
   const payment = await paymentApi.get({ id: Number(paymentId) });
 
   if (!payment) {
@@ -114,7 +117,12 @@ async function processPaymentNotification(paymentId: string, action?: string) {
     updatePayload.processed_at = new Date().toISOString();
   }
 
-  await db.from("transactions").update(updatePayload).eq("id", externalReference);
+  const { error: updateError } = await db.from("transactions").update(updatePayload).eq("id", externalReference);
+
+  if (updateError) {
+    console.error(`[Webhook] Failed to update transaction ${externalReference}:`, updateError);
+    return;
+  }
 
   if (transactionStatus === "approved" && existingTx.amount > 0) {
     await db.from("notifications").insert({
@@ -136,7 +144,7 @@ async function processPaymentNotification(paymentId: string, action?: string) {
     });
   }
 
-  console.log(`[Webhook] ${paymentId} -> ${externalReference} = ${transactionStatus}`);
+  console.log(`[Webhook] ${paymentId} -> ${externalReference} = ${transactionStatus} (MP: ${payment.status})`);
 }
 
 export async function POST(request: NextRequest) {
