@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence } from "framer-motion";
 import { LoginScreen } from "@/components/auth/login-screen";
@@ -13,17 +13,16 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasRedirected = useRef(false);
+  const [loginStarted, setLoginStarted] = useState(false);
 
-  // Redirect if already authenticated - use ref to avoid setState in effect
   useEffect(() => {
-    if (isAuthenticated && !authLoading && !hasRedirected.current) {
-      hasRedirected.current = true;
+    if (isAuthenticated && !authLoading) {
       router.push("/dashboard");
     }
   }, [isAuthenticated, authLoading, router]);
 
-  const handleLogin = async (userId: string, password: string) => {
+  const handleLogin = useCallback(async (userId: string, password: string) => {
+    setLoginStarted(true);
     setIsLoading(true);
     setError(null);
 
@@ -41,18 +40,14 @@ export default function LoginPage() {
       setError("Erro ao fazer login. Tente novamente.");
       setIsLoading(false);
     }
-  };
+  }, [login, router]);
 
-  // Derive loading state: show during auth check, when authenticated, or during redirect
-  const showPageLoading = authLoading || isAuthenticated || isRedirecting;
+  const showInitialLoading = authLoading && !loginStarted;
+  const showRedirecting = isRedirecting || (isAuthenticated && !loginStarted);
 
-  if (showPageLoading) {
-    const message = isRedirecting 
-      ? "Entrando..." 
-      : isAuthenticated 
-        ? "Redirecionando..." 
-        : "Verificando sessão...";
-    
+  if (showInitialLoading || showRedirecting) {
+    const message = showRedirecting ? "Entrando..." : "Verificando sessão...";
+
     return (
       <AnimatePresence mode="wait">
         <PageLoading isVisible={true} message={message} />

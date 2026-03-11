@@ -14,9 +14,19 @@ export default async function ClassificacaoPage() {
     redirect("/login");
   }
 
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("id, firebase_id, role")
+    .eq("id", user.id)
+    .single();
+
+  if (!userRow) {
+    redirect("/login");
+  }
+
   const { data: profile } = await supabase
-    .from("users_profiles")
-    .select("*")
+    .from("user_profiles")
+    .select("first_name, last_name, total_points, level, xp")
     .eq("id", user.id)
     .single();
 
@@ -24,44 +34,61 @@ export default async function ClassificacaoPage() {
     redirect("/login");
   }
 
+  type UserRowT = { id: string; firebase_id: string | null; role: string };
+  type ProfileT = { first_name: string; last_name: string | null; total_points: number; level: number; xp: number };
+  const ur = userRow as UserRowT;
+  const pr = profile as ProfileT;
+
   const { data: tournaments } = await supabase
     .from("tournaments")
-    .select("id, name, short_name, logo_url, status, season_id, format, has_rounds, has_groups")
-    .eq("status", "active")
-    .neq("name", "Copa do Brasil 2026")
+    .select("id, name, slug, logo_url, format, sofascore_id")
     .order("display_order", { ascending: true });
 
   type TournamentRow = {
-    id: number;
+    id: string;
     name: string;
-    short_name: string | null;
+    slug: string;
     logo_url: string | null;
-    status: string;
-    season_id: number | null;
     format: string | null;
-    has_rounds: boolean;
-    has_groups: boolean;
+    sofascore_id: number | null;
   };
 
   const tournamentsList = (tournaments as TournamentRow[] | null) || [];
 
-  const formattedTournaments = tournamentsList.map((t) => ({
-    id: t.id,
-    name: t.short_name || t.name,
-    fullName: t.name,
-    logo: t.logo_url || "/images/brasileirao-logo.svg",
-    seasonId: t.season_id,
-    format: t.format || "league",
-    hasRounds: t.has_rounds,
-    hasGroups: t.has_groups,
-  }));
+  const { data: seasons } = await supabase
+    .from("tournament_seasons")
+    .select("id, tournament_id, is_current, sofascore_season_id")
+    .eq("is_current", true);
+
+  type SeasonRow = { id: string; tournament_id: string; is_current: boolean; sofascore_season_id: number | null };
+  const seasonsList = (seasons as SeasonRow[] | null) || [];
+  const seasonMap = new Map(seasonsList.map((s) => [s.tournament_id, s]));
+
+  const formattedTournaments = tournamentsList.map((t) => {
+    const season = seasonMap.get(t.id);
+    return {
+      id: t.id,
+      name: t.name,
+      fullName: t.name,
+      logo: t.logo_url || "/images/brasileirao-logo.svg",
+      seasonId: season?.id || null,
+      sofascoreTournamentId: t.sofascore_id || null,
+      sofascoreSeasonId: season?.sofascore_season_id || null,
+      format: t.format || "league",
+      hasRounds: true,
+      hasGroups: false,
+    };
+  });
+
+  const userName = `${pr.first_name}${pr.last_name ? ` ${pr.last_name}` : ""}`;
 
   const userData = {
-    id: profile.firebase_id || user.id,
-    name: profile.name || "Jogador",
-    points: profile.points || 0,
-    level: profile.level || 1,
-    role: (profile.role || "user") as "user" | "admin",
+    id: ur.firebase_id || user.id,
+    name: userName || "Jogador",
+    points: pr.total_points || 0,
+    level: pr.level || 1,
+    xp: pr.xp || 0,
+    role: (ur.role || "user") as "user" | "admin",
   };
 
   return (

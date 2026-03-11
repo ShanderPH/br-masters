@@ -6,7 +6,6 @@ import { DashboardClient } from "./dashboard-client";
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  // Get authenticated user
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -15,10 +14,19 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  // Get user profile
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("id, firebase_id, role, favorite_team_id")
+    .eq("id", user.id)
+    .single();
+
+  if (!userRow) {
+    redirect("/login");
+  }
+
   const { data: profile } = await supabase
-    .from("users_profiles")
-    .select("*")
+    .from("user_profiles")
+    .select("first_name, last_name, total_points, level, xp")
     .eq("id", user.id)
     .single();
 
@@ -26,94 +34,128 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  // Get prize pool
+  type UserRowT = { id: string; firebase_id: string | null; role: string; favorite_team_id: string | null };
+  type ProfileT = { first_name: string; last_name: string | null; total_points: number; level: number; xp: number };
+  const ur = userRow as UserRowT;
+  const pr = profile as ProfileT;
+
   const { data: prizePool } = await supabase
-    .from("prize_pool")
+    .from("prize_pools")
     .select("*")
+    .limit(1)
     .single();
 
-  // Get ranking (top 10 users)
-  const { data: rankingUsers } = await supabase
-    .from("users_profiles")
-    .select("id, firebase_id, name, points, favorite_team_logo")
-    .eq("public_profile", true)
-    .order("points", { ascending: false })
+  const { data: rankingProfiles } = await supabase
+    .from("user_profiles")
+    .select("id, first_name, last_name, total_points, is_public")
+    .eq("is_public", true)
+    .order("total_points", { ascending: false })
     .limit(10);
 
-  // Get upcoming matches (next 7 days)
-  const now = new Date();
-  const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  type RankProfileRow = { id: string; first_name: string; last_name: string | null; total_points: number };
+  const rankProfiles = (rankingProfiles as RankProfileRow[] | null) || [];
 
-  const { data: upcomingMatches } = await supabase
-    .from("matches")
+  const rankTeamsMap: Map<string, string | null> = new Map();
+  if (rankProfiles.length > 0) {
+    const rankUserIds = rankProfiles.map((p) => p.id);
+    const { data: rankUsersData } = await supabase
+      .from("users")
+      .select("id, favorite_team_id")
+      .in("id", rankUserIds);
+    type RankUserRow = { id: string; favorite_team_id: string | null };
+    const rankUsers = (rankUsersData as RankUserRow[] | null) || [];
+    const teamIds = [...new Set(rankUsers.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
+    if (teamIds.length > 0) {
+      const { data: teamsData } = await supabase.from("teams").select("id, logo_url").in("id", teamIds);
+      type TeamRow = { id: string; logo_url: string | null };
+      const teams = (teamsData as TeamRow[] | null) || [];
+      const teamsLookup = new Map(teams.map((t) => [t.id, t.logo_url]));
+      rankUsers.forEach((u) => {
+        rankTeamsMap.set(u.id, u.favorite_team_id ? teamsLookup.get(u.favorite_team_id) ?? null : null);
+      });
+    }
+  }
+
+  const { data: upcomingRows } = await supabase
+    .from("upcoming_matches")
     .select("*")
-    .gte("start_time", now.toISOString())
-    .lte("start_time", weekFromNow.toISOString())
     .order("start_time", { ascending: true })
     .limit(5);
 
-  // Get user's predictions for upcoming matches
-  const matchIds = upcomingMatches?.map((m) => m.id) || [];
-  const { data: userPredictions } = await supabase
+  type UpcomingRow = {
+    id: string; slug: string; start_time: string; status: string;
+    home_team_name: string; home_team_code: string; home_team_logo: string | null;
+    away_team_name: string; away_team_code: string; away_team_logo: string | null;
+  };
+  const upcoming = (upcomingRows as UpcomingRow[] | null) || [];
+
+  const matchIds = upcoming.map((m) => m.id);
+  let predictedMatchIds = new Set<string>();
+  if (matchIds.length > 0) {
+    const { data: preds } = await supabase
+      .from("predictions")
+      .select("match_id")
+      .eq("user_id", user.id)
+      .in("match_id", matchIds);
+    type PredRow = { match_id: string };
+    predictedMatchIds = new Set((preds as PredRow[] | null)?.map((p) => p.match_id) || []);
+  }
+
+  const { count: totalPredictions } = await supabase
     .from("predictions")
-    .select("match_id")
-    .eq("user_id", profile.firebase_id)
-    .in("match_id", matchIds);
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id);
 
-  const predictedMatchIds = new Set(userPredictions?.map((p) => p.match_id) || []);
+  const userName = `${pr.first_name}${pr.last_name ? ` ${pr.last_name}` : ""}`;
 
-  // Get user stats
-  const { data: userPredictionsAll } = await supabase
-    .from("predictions")
-    .select("*")
-    .eq("user_id", profile.firebase_id);
-
-  const totalPredictions = userPredictionsAll?.length || 0;
-
-  // Format data for client component
   const userData = {
-    id: profile.firebase_id,
-    name: profile.name,
-    points: profile.points || 0,
-    level: profile.level || 1,
-    role: profile.role as "user" | "admin",
+    id: ur.firebase_id || user.id,
+    supabaseId: user.id,
+    name: userName,
+    points: pr.total_points || 0,
+    level: pr.level || 1,
+    xp: pr.xp || 0,
+    role: ur.role as "user" | "admin",
   };
 
   const stats = {
-    totalPredictions,
+    totalPredictions: totalPredictions ?? 0,
     correctPredictions: 0,
     exactScores: 0,
     accuracy: 0,
   };
 
-  const ranking = (rankingUsers || []).map((user, index) => ({
-    id: user.firebase_id,
-    name: user.name,
-    points: user.points || 0,
+  const ranking = rankProfiles.map((p, index) => ({
+    id: p.id,
+    name: `${p.first_name}${p.last_name ? ` ${p.last_name}` : ""}`,
+    points: p.total_points || 0,
     position: index + 1,
-    teamLogo: user.favorite_team_logo,
+    teamLogo: rankTeamsMap.get(p.id) ?? null,
   }));
 
-  const matches = (upcomingMatches || []).map((match) => ({
-    id: String(match.id),
+  const matches = upcoming.map((m) => ({
+    id: m.id,
     homeTeam: {
-      name: match.home_team_name,
-      shortName: match.home_team_short_name || match.home_team_name.substring(0, 3).toUpperCase(),
-      logo: match.home_team_logo || undefined,
+      name: m.home_team_name,
+      shortName: m.home_team_code || m.home_team_name.substring(0, 3).toUpperCase(),
+      logo: m.home_team_logo || undefined,
     },
     awayTeam: {
-      name: match.away_team_name,
-      shortName: match.away_team_short_name || match.away_team_name.substring(0, 3).toUpperCase(),
-      logo: match.away_team_logo || undefined,
+      name: m.away_team_name,
+      shortName: m.away_team_code || m.away_team_name.substring(0, 3).toUpperCase(),
+      logo: m.away_team_logo || undefined,
     },
-    startTime: match.start_time,
-    status: match.status as "scheduled" | "live" | "finished",
-    hasPrediction: predictedMatchIds.has(match.id),
+    startTime: m.start_time,
+    status: m.status as "scheduled" | "live" | "finished",
+    hasPrediction: predictedMatchIds.has(m.id),
   }));
 
+  type PrizeRow = { total_approved: number; participants_count: number } | null;
+  const pp = prizePool as PrizeRow;
+
   const prizePoolData = {
-    total: prizePool?.total || 0,
-    participants: prizePool?.participants || 0,
+    total: pp?.total_approved || 0,
+    participants: pp?.participants_count || 0,
   };
 
   return (

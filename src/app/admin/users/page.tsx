@@ -9,19 +9,13 @@ import { useAdminCrud } from "@/hooks/use-admin-crud";
 
 interface UserRow {
   id: string;
-  firebase_id: string;
-  name: string;
-  email: string | null;
-  role: string | null;
-  points: number | null;
+  first_name: string;
+  last_name: string | null;
+  total_points: number | null;
   predictions_count: number | null;
   xp: number | null;
   level: number | null;
-  favorite_team_name: string | null;
-  notifications_enabled: boolean | null;
-  public_profile: boolean | null;
-  pending_payments: number | null;
-  total_approved_payments: number | null;
+  is_public: boolean | null;
   created_at: string | null;
 }
 
@@ -36,13 +30,11 @@ export default function UsersManagementPage() {
   const PAGE_SIZE = 20;
 
   const fetchUsers = useCallback(async () => {
-    const filters = searchTerm
-      ? [{ column: "name", operator: "ilike", value: `%${searchTerm}%` }]
-      : [];
-
     const result = await list<UserRow>({
-      table: "users_profiles",
-      filters,
+      table: "user_profiles",
+      filters: searchTerm
+        ? [{ column: "first_name", operator: "ilike", value: `%${searchTerm}%` }]
+        : [],
       orderBy: { column: "created_at", ascending: false },
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
@@ -64,10 +56,9 @@ export default function UsersManagementPage() {
     if (!editingUser) return;
 
     const formData = new FormData(e.currentTarget);
-    await update("users_profiles", editingUser.id, {
-      name: formData.get("name") as string,
-      role: formData.get("role") as string,
-      points: Number(formData.get("points")),
+    await update("user_profiles", editingUser.id, {
+      first_name: formData.get("first_name") as string,
+      total_points: Number(formData.get("total_points")),
       xp: Number(formData.get("xp")),
       level: Number(formData.get("level")),
     });
@@ -79,7 +70,7 @@ export default function UsersManagementPage() {
 
   const handleDeleteUser = async (userId: string) => {
     if (!confirm("Tem certeza que deseja excluir este usuário?")) return;
-    await remove("users_profiles", userId);
+    await remove("user_profiles", userId);
     fetchUsers();
   };
 
@@ -148,28 +139,24 @@ export default function UsersManagementPage() {
                   transition={{ delay: i * 0.02 }}
                   className="border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors"
                 >
-                  <td className="py-2.5 px-3 font-mono text-brm-text-secondary">{user.firebase_id}</td>
-                  <td className="py-2.5 px-3 font-semibold text-brm-text-primary">{user.name}</td>
-                  <td className="py-2.5 px-3 text-brm-text-muted hidden md:table-cell truncate max-w-[180px]">
-                    {user.email || "-"}
+                  <td className="py-2.5 px-3 font-mono text-brm-text-secondary">{user.id.slice(0, 8)}</td>
+                  <td className="py-2.5 px-3 font-semibold text-brm-text-primary">{user.first_name}{user.last_name ? ` ${user.last_name}` : ""}</td>
+                  <td className="py-2.5 px-3 text-brm-text-muted hidden md:table-cell">
+                    {user.is_public ? "Público" : "Privado"}
                   </td>
                   <td className="py-2.5 px-3 text-center">
-                    <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
-                      user.role === "admin"
-                        ? "bg-brm-accent/20 text-brm-accent"
-                        : "bg-brm-primary/20 text-brm-primary"
-                    }`}>
-                      {user.role || "user"}
+                    <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-brm-primary/20 text-brm-primary">
+                      user
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-right font-mono font-bold text-brm-secondary">
-                    {(user.points ?? 0).toLocaleString("pt-BR")}
+                    {(user.total_points ?? 0).toLocaleString("pt-BR")}
                   </td>
                   <td className="py-2.5 px-3 text-right font-mono text-brm-text-secondary hidden sm:table-cell">
                     {user.level ?? 1}
                   </td>
-                  <td className="py-2.5 px-3 text-brm-text-muted hidden lg:table-cell truncate max-w-[120px]">
-                    {user.favorite_team_name || "-"}
+                  <td className="py-2.5 px-3 text-brm-text-muted hidden lg:table-cell">
+                    -
                   </td>
                   <td className="py-2.5 px-3">
                     <div className="flex items-center justify-center gap-1">
@@ -253,15 +240,11 @@ export default function UsersManagementPage() {
                 <form onSubmit={handleUpdateUser}>
                   <Modal.Body>
                     <div className="flex flex-col gap-4">
-                      <TextField name="name" defaultValue={editingUser.name}>
+                      <TextField name="first_name" defaultValue={editingUser.first_name}>
                         <Label>Nome</Label>
                         <Input variant="secondary" />
                       </TextField>
-                      <TextField name="role" defaultValue={editingUser.role || "user"}>
-                        <Label>Role</Label>
-                        <Input variant="secondary" />
-                      </TextField>
-                      <TextField name="points" defaultValue={String(editingUser.points ?? 0)}>
+                      <TextField name="total_points" defaultValue={String(editingUser.total_points ?? 0)}>
                         <Label>Pontos</Label>
                         <Input variant="secondary" type="number" />
                       </TextField>

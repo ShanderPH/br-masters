@@ -11,7 +11,7 @@ interface UserSuggestion {
   firebase_id: string;
   name: string;
   favorite_team_logo: string | null;
-  avatar: string | null;
+  avatar_url: string | null;
 }
 
 interface UserSearchInputProps {
@@ -47,18 +47,57 @@ export function UserSearchInput({
 
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("users_profiles")
-        .select("id, firebase_id, name, favorite_team_logo, avatar")
-        .ilike("name", `%${searchTerm}%`)
-        .order("name")
+      const { data: profiles, error } = await supabase
+        .from("user_profiles")
+        .select("id, first_name, last_name, avatar_url")
+        .ilike("first_name", `%${searchTerm}%`)
+        .order("first_name")
         .limit(8);
 
       if (error) {
         console.error("Error searching users:", error);
         setSuggestions([]);
       } else {
-        setSuggestions(data || []);
+        type ProfileRow = { id: string; first_name: string; last_name: string | null; avatar_url: string | null };
+        const profileRows = (profiles as ProfileRow[] | null) || [];
+        const userIds = profileRows.map((p) => p.id);
+
+        let usersMap: Map<string, { firebase_id: string | null; favorite_team_id: string | null }> = new Map();
+        if (userIds.length > 0) {
+          const { data: usersData } = await supabase
+            .from("users")
+            .select("id, firebase_id, favorite_team_id")
+            .in("id", userIds);
+          type UserRow = { id: string; firebase_id: string | null; favorite_team_id: string | null };
+          const userRows = (usersData as UserRow[] | null) || [];
+          usersMap = new Map(userRows.map((u) => [u.id, { firebase_id: u.firebase_id, favorite_team_id: u.favorite_team_id }]));
+        }
+
+        let teamsMap: Map<string, string | null> = new Map();
+        const teamIds = [...new Set([...usersMap.values()].map((u) => u.favorite_team_id).filter(Boolean))] as string[];
+        if (teamIds.length > 0) {
+          const { data: teamsData } = await supabase
+            .from("teams")
+            .select("id, logo_url")
+            .in("id", teamIds);
+          type TeamRow = { id: string; logo_url: string | null };
+          const teamRows = (teamsData as TeamRow[] | null) || [];
+          teamsMap = new Map(teamRows.map((t) => [t.id, t.logo_url]));
+        }
+
+        const mapped: UserSuggestion[] = profileRows.map((p) => {
+          const userInfo = usersMap.get(p.id);
+          const teamLogo = userInfo?.favorite_team_id ? teamsMap.get(userInfo.favorite_team_id) ?? null : null;
+          return {
+            id: p.id,
+            firebase_id: userInfo?.firebase_id || "",
+            name: `${p.first_name}${p.last_name ? ` ${p.last_name}` : ""}`,
+            favorite_team_logo: teamLogo,
+            avatar_url: p.avatar_url,
+          };
+        });
+
+        setSuggestions(mapped);
       }
     } catch (err) {
       console.error("Error searching users:", err);
@@ -185,6 +224,8 @@ export function UserSearchInput({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}
+          autoComplete="off"
+          name="brm-user-search"
           className={`w-full py-3 bg-brm-background border text-brm-text-primary placeholder:text-brm-text-muted focus:outline-none focus:ring-2 focus:ring-brm-primary focus:border-transparent transition-all ${
             selectedUser
               ? "pl-12 pr-10 border-brm-primary/50"

@@ -24,6 +24,7 @@ interface RankingUser {
   name: string;
   points: number;
   level: number;
+  xp: number;
   role: "user" | "admin";
 }
 
@@ -86,6 +87,11 @@ const PositionBadge = ({ position }: { position: number }) => {
 
 const defaultLogo = "/images/brm-icon.svg";
 
+function handleImageError(e: React.SyntheticEvent<HTMLImageElement>) {
+  const target = e.target as HTMLImageElement;
+  target.src = defaultLogo;
+}
+
 export function RankingClient({
   user,
   generalRanking,
@@ -133,6 +139,7 @@ export function RankingClient({
             name: user.name,
             points: user.points,
             level: user.level,
+            xp: user.xp,
             role: user.role,
           }}
           onLogout={handleLogout}
@@ -247,6 +254,7 @@ export function RankingClient({
                                 alt={player.name}
                                 fill
                                 className="object-contain"
+                                onError={handleImageError}
                               />
                               <div
                                 className={`absolute -bottom-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 ${podiumBadgeColors[idx]} rounded-full flex items-center justify-center text-[10px] font-black text-white`}
@@ -318,6 +326,7 @@ export function RankingClient({
                               alt={player.name}
                               fill
                               className="object-contain"
+                              onError={handleImageError}
                             />
                           </div>
 

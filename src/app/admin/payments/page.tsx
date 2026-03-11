@@ -15,33 +15,15 @@ import {
 
 import { useAdminCrud } from "@/hooks/use-admin-crud";
 
-interface PaymentRow {
+interface TransactionRow {
   id: string;
   user_id: string;
+  type: string;
   amount: number;
   status: string;
-  pix_key: string;
-  transaction_id: string | null;
-  request_date: string;
-  admin_id: string | null;
-  admin_name: string | null;
-  processed_at: string | null;
-  rejection_reason: string | null;
-  user_name: string;
-  user_team: string | null;
+  description: string | null;
+  reference_id: string | null;
   created_at: string;
-}
-
-interface DepositRow {
-  id: string;
-  user_id: string;
-  amount: number;
-  status: string;
-  payment_method: string;
-  created_at: string;
-  confirmed_at: string | null;
-  cancelled_at: string | null;
-  notes: string | null;
 }
 
 function formatCurrency(value: number): string {
@@ -68,26 +50,29 @@ function getPaymentStatusBadge(status: string): { label: string; class: string; 
 export default function PaymentsManagementPage() {
   const { list, apiCall, loading } = useAdminCrud();
 
-  const [payments, setPayments] = useState<PaymentRow[]>([]);
-  const [deposits, setDeposits] = useState<DepositRow[]>([]);
-  const [totalPayments, setTotalPayments] = useState(0);
+  const [withdrawals, setWithdrawals] = useState<TransactionRow[]>([]);
+  const [deposits, setDeposits] = useState<TransactionRow[]>([]);
+  const [totalWithdrawals, setTotalWithdrawals] = useState(0);
   const [totalDeposits, setTotalDeposits] = useState(0);
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState("");
+  const [withdrawalStatusFilter, setWithdrawalStatusFilter] = useState("");
   const [depositStatusFilter, setDepositStatusFilter] = useState("");
   const [payPage, setPayPage] = useState(0);
   const [depPage, setDepPage] = useState(0);
   const PAGE_SIZE = 20;
 
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
-  const [rejectTarget, setRejectTarget] = useState<{ id: string; type: "payment" | "deposit" } | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<{ id: string; type: "withdrawal" | "deposit" } | null>(null);
 
-  const fetchPayments = useCallback(async () => {
-    const filters = paymentStatusFilter
-      ? [{ column: "status", operator: "eq", value: paymentStatusFilter }]
-      : [];
+  const fetchWithdrawals = useCallback(async () => {
+    const filters: { column: string; operator: string; value: unknown }[] = [
+      { column: "type", operator: "eq", value: "withdrawal" },
+    ];
+    if (withdrawalStatusFilter) {
+      filters.push({ column: "status", operator: "eq", value: withdrawalStatusFilter });
+    }
 
-    const result = await list<PaymentRow>({
-      table: "payments",
+    const result = await list<TransactionRow>({
+      table: "transactions",
       filters,
       orderBy: { column: "created_at", ascending: false },
       limit: PAGE_SIZE,
@@ -95,18 +80,21 @@ export default function PaymentsManagementPage() {
     });
 
     if (result.data) {
-      setPayments(result.data as PaymentRow[]);
-      setTotalPayments(result.count ?? 0);
+      setWithdrawals(result.data as TransactionRow[]);
+      setTotalWithdrawals(result.count ?? 0);
     }
-  }, [list, paymentStatusFilter, payPage]);
+  }, [list, withdrawalStatusFilter, payPage]);
 
   const fetchDeposits = useCallback(async () => {
-    const filters = depositStatusFilter
-      ? [{ column: "status", operator: "eq", value: depositStatusFilter }]
-      : [];
+    const filters: { column: string; operator: string; value: unknown }[] = [
+      { column: "type", operator: "eq", value: "deposit" },
+    ];
+    if (depositStatusFilter) {
+      filters.push({ column: "status", operator: "eq", value: depositStatusFilter });
+    }
 
-    const result = await list<DepositRow>({
-      table: "deposits",
+    const result = await list<TransactionRow>({
+      table: "transactions",
       filters,
       orderBy: { column: "created_at", ascending: false },
       limit: PAGE_SIZE,
@@ -114,30 +102,25 @@ export default function PaymentsManagementPage() {
     });
 
     if (result.data) {
-      setDeposits(result.data as DepositRow[]);
+      setDeposits(result.data as TransactionRow[]);
       setTotalDeposits(result.count ?? 0);
     }
   }, [list, depositStatusFilter, depPage]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchPayments();
-  }, [paymentStatusFilter, payPage]); // eslint-disable-line react-hooks/exhaustive-deps
+    void fetchWithdrawals();
+  }, [withdrawalStatusFilter, payPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchDeposits();
   }, [depositStatusFilter, depPage]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleApprovePayment = async (id: string) => {
-    if (!confirm("Aprovar este saque?")) return;
-    await apiCall({ action: "approve_payment", table: "payments", id });
-    fetchPayments();
-  };
-
-  const handleApproveDeposit = async (id: string) => {
-    if (!confirm("Confirmar este depósito?")) return;
-    await apiCall({ action: "approve_deposit", table: "deposits", id });
+  const handleApproveTransaction = async (id: string) => {
+    if (!confirm("Aprovar esta transação?")) return;
+    await apiCall({ action: "approve_transaction", table: "transactions", id });
+    fetchWithdrawals();
     fetchDeposits();
   };
 
@@ -147,22 +130,18 @@ export default function PaymentsManagementPage() {
     const fd = new FormData(e.currentTarget);
     const reason = fd.get("reason") as string;
 
-    if (rejectTarget.type === "payment") {
-      await apiCall({ action: "reject_payment", table: "payments", id: rejectTarget.id, rejection_reason: reason });
-      fetchPayments();
-    } else {
-      await apiCall({ action: "reject_deposit", table: "deposits", id: rejectTarget.id, notes: reason });
-      fetchDeposits();
-    }
+    await apiCall({ action: "reject_transaction", table: "transactions", id: rejectTarget.id, description: reason });
+    fetchWithdrawals();
+    fetchDeposits();
 
     setRejectModalOpen(false);
     setRejectTarget(null);
   };
 
-  const paymentPages = Math.ceil(totalPayments / PAGE_SIZE);
+  const withdrawalPages = Math.ceil(totalWithdrawals / PAGE_SIZE);
   const depositPages = Math.ceil(totalDeposits / PAGE_SIZE);
 
-  const pendingPaymentsCount = payments.filter(p => p.status === "pending").length;
+  const pendingWithdrawalsCount = withdrawals.filter(p => p.status === "pending").length;
   const pendingDepositsCount = deposits.filter(d => d.status === "pending").length;
 
   return (
@@ -177,7 +156,7 @@ export default function PaymentsManagementPage() {
             Gerencie saques e depósitos
           </p>
         </div>
-        <Button variant="ghost" size="sm" onPress={() => { fetchPayments(); fetchDeposits(); }} isDisabled={loading} className="gap-2">
+        <Button variant="ghost" size="sm" onPress={() => { fetchWithdrawals(); fetchDeposits(); }} isDisabled={loading} className="gap-2">
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           Atualizar
         </Button>
@@ -190,7 +169,7 @@ export default function PaymentsManagementPage() {
             <ArrowUpRight className="w-4 h-4 text-red-400" />
             <span className="text-[10px] font-semibold text-brm-text-muted uppercase">Saques</span>
           </div>
-          <p className="font-display font-black text-lg text-brm-text-primary">{totalPayments}</p>
+          <p className="font-display font-black text-lg text-brm-text-primary">{totalWithdrawals}</p>
         </Card>
         <Card className="p-3 bg-brm-card border border-white/5">
           <div className="flex items-center gap-2 mb-1">
@@ -204,7 +183,7 @@ export default function PaymentsManagementPage() {
             <Clock className="w-4 h-4 text-yellow-400" />
             <span className="text-[10px] font-semibold text-brm-text-muted uppercase">Saques Pend.</span>
           </div>
-          <p className="font-display font-black text-lg text-yellow-400">{pendingPaymentsCount}</p>
+          <p className="font-display font-black text-lg text-yellow-400">{pendingWithdrawalsCount}</p>
         </Card>
         <Card className="p-3 bg-brm-card border border-white/5">
           <div className="flex items-center gap-2 mb-1">
@@ -218,7 +197,7 @@ export default function PaymentsManagementPage() {
       <Tabs>
         <Tabs.ListContainer>
           <Tabs.List aria-label="Tipo de Pagamento" className="*:font-display *:font-semibold *:text-xs *:uppercase">
-            <Tabs.Tab id="payments">Saques ({totalPayments})<Tabs.Indicator /></Tabs.Tab>
+            <Tabs.Tab id="payments">Saques ({totalWithdrawals})<Tabs.Indicator /></Tabs.Tab>
             <Tabs.Tab id="deposits">Depósitos ({totalDeposits})<Tabs.Indicator /></Tabs.Tab>
           </Tabs.List>
         </Tabs.ListContainer>
@@ -227,8 +206,8 @@ export default function PaymentsManagementPage() {
         <Tabs.Panel id="payments" className="pt-4 space-y-4">
           <Card className="p-3 bg-brm-card border border-white/5">
             <select
-              value={paymentStatusFilter}
-              onChange={(e) => { setPaymentStatusFilter(e.target.value); setPayPage(0); }}
+              value={withdrawalStatusFilter}
+              onChange={(e) => { setWithdrawalStatusFilter(e.target.value); setPayPage(0); }}
               className="bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10"
             >
               <option value="">Todos os Status</option>
@@ -239,12 +218,12 @@ export default function PaymentsManagementPage() {
           </Card>
 
           <div className="space-y-2">
-            {payments.map((payment, i) => {
-              const badge = getPaymentStatusBadge(payment.status);
+            {withdrawals.map((tx, i) => {
+              const badge = getPaymentStatusBadge(tx.status);
               const StatusIcon = badge.icon;
               return (
                 <motion.div
-                  key={payment.id}
+                  key={tx.id}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
@@ -253,32 +232,28 @@ export default function PaymentsManagementPage() {
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <p className="font-display font-bold text-sm text-brm-text-primary">{payment.user_name}</p>
+                          <p className="font-display font-bold text-sm text-brm-text-primary">Usuário: {tx.user_id.slice(0, 8)}</p>
                           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${badge.class}`}>
                             <StatusIcon className="w-3 h-3" />
                             {badge.label}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-brm-text-muted">
-                          <span>PIX: {payment.pix_key}</span>
-                          <span>Solicitado: {formatDate(payment.request_date)}</span>
-                          {payment.admin_name && <span>Admin: {payment.admin_name}</span>}
-                          {payment.processed_at && <span>Processado: {formatDate(payment.processed_at)}</span>}
-                          {payment.rejection_reason && (
-                            <span className="text-red-400">Motivo: {payment.rejection_reason}</span>
-                          )}
+                          <span>Criado: {formatDate(tx.created_at)}</span>
+                          {tx.description && <span>Descrição: {tx.description}</span>}
+                          {tx.reference_id && <span>Ref: {tx.reference_id}</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <p className="font-display font-black text-lg text-brm-accent">{formatCurrency(payment.amount)}</p>
-                        {payment.status === "pending" && (
+                        <p className="font-display font-black text-lg text-brm-accent">{formatCurrency(tx.amount)}</p>
+                        {tx.status === "pending" && (
                           <div className="flex gap-1">
-                            <Button size="sm" onPress={() => handleApprovePayment(payment.id)}
+                            <Button size="sm" onPress={() => handleApproveTransaction(tx.id)}
                               className="bg-green-500/20 text-green-400 text-xs gap-1">
                               <CheckCircle className="w-3.5 h-3.5" />
                               Aprovar
                             </Button>
-                            <Button size="sm" onPress={() => { setRejectTarget({ id: payment.id, type: "payment" }); setRejectModalOpen(true); }}
+                            <Button size="sm" onPress={() => { setRejectTarget({ id: tx.id, type: "withdrawal" }); setRejectModalOpen(true); }}
                               className="bg-red-500/20 text-red-400 text-xs gap-1">
                               <XCircle className="w-3.5 h-3.5" />
                               Rejeitar
@@ -292,19 +267,19 @@ export default function PaymentsManagementPage() {
               );
             })}
 
-            {payments.length === 0 && !loading && (
+            {withdrawals.length === 0 && !loading && (
               <Card className="p-8 bg-brm-card border border-white/5 text-center">
                 <p className="text-sm text-brm-text-muted">Nenhum saque encontrado</p>
               </Card>
             )}
           </div>
 
-          {paymentPages > 1 && (
+          {withdrawalPages > 1 && (
             <div className="flex items-center justify-between">
-              <p className="text-xs text-brm-text-muted">Página {payPage + 1} de {paymentPages}</p>
+              <p className="text-xs text-brm-text-muted">Página {payPage + 1} de {withdrawalPages}</p>
               <div className="flex gap-1">
                 <Button variant="ghost" size="sm" isDisabled={payPage === 0} onPress={() => setPayPage(p => p - 1)} className="text-xs">Anterior</Button>
-                <Button variant="ghost" size="sm" isDisabled={payPage >= paymentPages - 1} onPress={() => setPayPage(p => p + 1)} className="text-xs">Próxima</Button>
+                <Button variant="ghost" size="sm" isDisabled={payPage >= withdrawalPages - 1} onPress={() => setPayPage(p => p + 1)} className="text-xs">Próxima</Button>
               </div>
             </div>
           )}
@@ -326,12 +301,12 @@ export default function PaymentsManagementPage() {
           </Card>
 
           <div className="space-y-2">
-            {deposits.map((deposit, i) => {
-              const badge = getPaymentStatusBadge(deposit.status);
+            {deposits.map((tx, i) => {
+              const badge = getPaymentStatusBadge(tx.status);
               const StatusIcon = badge.icon;
               return (
                 <motion.div
-                  key={deposit.id}
+                  key={tx.id}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
@@ -341,7 +316,7 @@ export default function PaymentsManagementPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <p className="font-display font-bold text-sm text-brm-text-primary">
-                            Usuário: {deposit.user_id}
+                            Usuário: {tx.user_id.slice(0, 8)}
                           </p>
                           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${badge.class}`}>
                             <StatusIcon className="w-3 h-3" />
@@ -349,23 +324,21 @@ export default function PaymentsManagementPage() {
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-brm-text-muted">
-                          <span>Método: {deposit.payment_method}</span>
-                          <span>Criado: {formatDate(deposit.created_at)}</span>
-                          {deposit.confirmed_at && <span>Confirmado: {formatDate(deposit.confirmed_at)}</span>}
-                          {deposit.cancelled_at && <span>Cancelado: {formatDate(deposit.cancelled_at)}</span>}
-                          {deposit.notes && <span className="text-red-400">Notas: {deposit.notes}</span>}
+                          <span>Criado: {formatDate(tx.created_at)}</span>
+                          {tx.description && <span>Descrição: {tx.description}</span>}
+                          {tx.reference_id && <span>Ref: {tx.reference_id}</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <p className="font-display font-black text-lg text-green-400">{formatCurrency(deposit.amount)}</p>
-                        {deposit.status === "pending" && (
+                        <p className="font-display font-black text-lg text-green-400">{formatCurrency(tx.amount)}</p>
+                        {tx.status === "pending" && (
                           <div className="flex gap-1">
-                            <Button size="sm" onPress={() => handleApproveDeposit(deposit.id)}
+                            <Button size="sm" onPress={() => handleApproveTransaction(tx.id)}
                               className="bg-green-500/20 text-green-400 text-xs gap-1">
                               <CheckCircle className="w-3.5 h-3.5" />
                               Confirmar
                             </Button>
-                            <Button size="sm" onPress={() => { setRejectTarget({ id: deposit.id, type: "deposit" }); setRejectModalOpen(true); }}
+                            <Button size="sm" onPress={() => { setRejectTarget({ id: tx.id, type: "deposit" }); setRejectModalOpen(true); }}
                               className="bg-red-500/20 text-red-400 text-xs gap-1">
                               <XCircle className="w-3.5 h-3.5" />
                               Cancelar
@@ -407,7 +380,7 @@ export default function PaymentsManagementPage() {
                 <Modal.CloseTrigger />
                 <Modal.Header>
                   <Modal.Heading className="font-display font-bold text-brm-text-primary">
-                    {rejectTarget.type === "payment" ? "Rejeitar Saque" : "Cancelar Depósito"}
+                    {rejectTarget.type === "withdrawal" ? "Rejeitar Saque" : "Cancelar Depósito"}
                   </Modal.Heading>
                 </Modal.Header>
                 <form onSubmit={handleReject}>
@@ -420,7 +393,7 @@ export default function PaymentsManagementPage() {
                   <Modal.Footer>
                     <Button variant="ghost" slot="close" className="mr-2">Cancelar</Button>
                     <Button type="submit" className="bg-red-500 text-white">
-                      {rejectTarget.type === "payment" ? "Rejeitar" : "Cancelar Depósito"}
+                      {rejectTarget.type === "withdrawal" ? "Rejeitar" : "Cancelar Depósito"}
                     </Button>
                   </Modal.Footer>
                 </form>

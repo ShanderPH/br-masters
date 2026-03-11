@@ -223,3 +223,19 @@ export function StandardTile({ children, className, ...props }: TileWrapperProps
   );
 }
 
+export function CompactVerticalTile({ children, className, ...props }: TileWrapperProps) {
+  return (
+    <BentoTileWrapper
+      className={`
+        col-span-1
+        min-[480px]:col-span-1
+        h-[200px] min-[480px]:h-[220px] lg:h-[200px]
+        ${className || ""}
+      `}
+      {...props}
+    >
+      {children}
+    </BentoTileWrapper>
+  );
+}
+

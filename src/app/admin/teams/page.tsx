@@ -9,7 +9,7 @@ import Image from "next/image";
 import { useAdminCrud } from "@/hooks/use-admin-crud";
 
 interface TeamRow {
-  id: number;
+  id: string;
   name: string;
   short_name: string | null;
   name_code: string | null;
@@ -20,7 +20,7 @@ interface TeamRow {
   venue_name: string | null;
   venue_city: string | null;
   manager_name: string | null;
-  primary_tournament_id: number | null;
+  primary_tournament_id: string | null;
   primary_tournament_name: string | null;
   last_sync_at: string | null;
 }
@@ -77,7 +77,7 @@ export default function TeamsManagementPage() {
     fetchTeams();
   };
 
-  const handleDeleteTeam = async (id: number) => {
+  const handleDeleteTeam = async (id: string) => {
     if (!confirm("Excluir este time?")) return;
     await remove("teams", id);
     fetchTeams();

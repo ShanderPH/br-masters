@@ -6,10 +6,10 @@ import Image from "next/image";
 import { X, Minus, Plus } from "lucide-react";
 import { Button } from "@heroui/react";
 
-import type { Match } from "@/lib/supabase/types";
+import type { EnrichedMatch } from "@/lib/supabase/types";
 
 interface PredictionModalProps {
-  match: Match | null;
+  match: EnrichedMatch | null;
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (homeScore: number, awayScore: number) => Promise<void>;
@@ -107,6 +107,7 @@ export function PredictionModal({
                         src={getTeamLogo(match.home_team_name, match.home_team_logo)}
                         alt={match.home_team_name}
                         fill
+                        unoptimized
                         className="object-contain"
                         onError={(e) => {
                           (e.target as HTMLImageElement).src = "/images/logo/waiting.svg";
@@ -150,6 +151,7 @@ export function PredictionModal({
                         src={getTeamLogo(match.away_team_name, match.away_team_logo)}
                         alt={match.away_team_name}
                         fill
+                        unoptimized
                         className="object-contain"
                         onError={(e) => {
                           (e.target as HTMLImageElement).src = "/images/logo/waiting.svg";

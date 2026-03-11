@@ -14,9 +14,19 @@ export default async function PalpitesPage() {
     redirect("/login");
   }
 
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("id, username, firebase_id, role, favorite_team_id")
+    .eq("id", user.id)
+    .single();
+
+  if (!userRow) {
+    redirect("/login");
+  }
+
   const { data: profile } = await supabase
-    .from("users_profiles")
-    .select("*")
+    .from("user_profiles")
+    .select("first_name, last_name, total_points, level, xp")
     .eq("id", user.id)
     .single();
 
@@ -24,19 +34,21 @@ export default async function PalpitesPage() {
     redirect("/login");
   }
 
+  type UserRowT = { id: string; username: string; firebase_id: string | null; role: string; favorite_team_id: string | null };
+  type ProfileT = { first_name: string; last_name: string | null; total_points: number; level: number; xp: number };
+  const ur = userRow as UserRowT;
+  const pr = profile as ProfileT;
+
   const { data: tournaments } = await supabase
     .from("tournaments")
-    .select("id, name, short_name, logo_url, status")
-    .eq("status", "active")
-    .neq("name", "Copa do Brasil 2026")
+    .select("id, name, slug, logo_url")
     .order("display_order", { ascending: true });
 
   type TournamentRow = {
-    id: number;
+    id: string;
     name: string;
-    short_name: string | null;
+    slug: string;
     logo_url: string | null;
-    status: string;
   };
 
   const tournamentsList = (tournaments as TournamentRow[] | null) || [];
@@ -47,67 +59,73 @@ export default async function PalpitesPage() {
     .eq("is_current", true);
 
   type SeasonRow = {
-    id: number;
-    tournament_id: number;
+    id: string;
+    tournament_id: string;
     current_round_number: number | null;
   };
 
   const seasonsList = (seasons as SeasonRow[] | null) || [];
 
-  const seasonMap: Record<number, number> = {};
+  const seasonMap: Record<string, number> = {};
   seasonsList.forEach((s) => {
     if (s.current_round_number) {
       seasonMap[s.tournament_id] = s.current_round_number;
     }
   });
 
-  const firebaseId = profile.firebase_id;
-
   const { data: predictions } = await supabase
     .from("predictions")
-    .select("id, match_id, home_team_goals, away_team_goals, points_earned, is_correct, is_exact_score, tournament_id, predicted_at")
-    .eq("user_id", firebaseId)
+    .select("id, match_id, home_team_goals, away_team_goals, points_earned, is_correct_result, is_exact_score, predicted_at")
+    .eq("user_id", user.id)
     .order("predicted_at", { ascending: false });
 
   type PredictionRow = {
     id: string;
-    match_id: number;
+    match_id: string;
     home_team_goals: number;
     away_team_goals: number;
-    points_earned: number | null;
-    is_correct: boolean | null;
+    points_earned: number;
+    is_correct_result: boolean | null;
     is_exact_score: boolean | null;
-    tournament_id: number | null;
     predicted_at: string;
   };
 
   const predictionRows = (predictions as PredictionRow[] | null) || [];
-
   const matchIds = predictionRows.map((p) => p.match_id);
 
-  let matchesData: Array<{
-    id: number;
-    round_number: number;
-    home_team_name: string;
-    home_team_short_name: string | null;
-    home_team_logo: string | null;
-    away_team_name: string;
-    away_team_short_name: string | null;
-    away_team_logo: string | null;
+  type MatchDataRow = {
+    id: string;
+    round_number: number | null;
+    home_team_id: string;
+    away_team_id: string;
     start_time: string;
     status: string;
     home_score: number | null;
     away_score: number | null;
-    tournament_id: number;
-  }> = [];
+    tournament_id: string;
+  };
+
+  let matchesData: MatchDataRow[] = [];
 
   if (matchIds.length > 0) {
     const { data: mData } = await supabase
       .from("matches")
-      .select("id, round_number, home_team_name, home_team_short_name, home_team_logo, away_team_name, away_team_short_name, away_team_logo, start_time, status, home_score, away_score, tournament_id")
+      .select("id, round_number, home_team_id, away_team_id, start_time, status, home_score, away_score, tournament_id")
       .in("id", matchIds);
 
-    matchesData = (mData as typeof matchesData) || [];
+    matchesData = (mData as MatchDataRow[]) || [];
+  }
+
+  const allTeamIds = [...new Set(matchesData.flatMap((m) => [m.home_team_id, m.away_team_id]))];
+  let teamsMap: Map<string, { name: string; name_code: string; logo_url: string | null }> = new Map();
+  if (allTeamIds.length > 0) {
+    const { data: teamsData } = await supabase
+      .from("teams")
+      .select("id, name, name_code, logo_url")
+      .in("id", allTeamIds);
+    type TeamRow = { id: string; name: string; name_code: string; logo_url: string | null };
+    const teamRows = (teamsData as TeamRow[] | null) || [];
+    teamsMap = new Map(teamRows.map((t) => [t.id, { name: t.name, name_code: t.name_code, logo_url: t.logo_url }]));
   }
 
   const matchMap = new Map(matchesData.map((m) => [m.id, m]));
@@ -117,25 +135,28 @@ export default async function PalpitesPage() {
       const match = matchMap.get(p.match_id);
       if (!match) return null;
 
+      const homeTeam = teamsMap.get(match.home_team_id);
+      const awayTeam = teamsMap.get(match.away_team_id);
+
       return {
         id: p.id,
         matchId: p.match_id,
         homeTeamGoals: p.home_team_goals,
         awayTeamGoals: p.away_team_goals,
         pointsEarned: p.points_earned || 0,
-        isCorrect: p.is_correct || false,
+        isCorrect: p.is_correct_result || false,
         isExactScore: p.is_exact_score || false,
         tournamentId: match.tournament_id,
-        roundNumber: match.round_number,
+        roundNumber: match.round_number || 0,
         predictedAt: p.predicted_at,
         match: {
           id: match.id,
-          homeTeamName: match.home_team_name,
-          homeTeamShortName: match.home_team_short_name,
-          homeTeamLogo: match.home_team_logo,
-          awayTeamName: match.away_team_name,
-          awayTeamShortName: match.away_team_short_name,
-          awayTeamLogo: match.away_team_logo,
+          homeTeamName: homeTeam?.name || "TBD",
+          homeTeamShortName: homeTeam?.name_code || null,
+          homeTeamLogo: homeTeam?.logo_url || null,
+          awayTeamName: awayTeam?.name || "TBD",
+          awayTeamShortName: awayTeam?.name_code || null,
+          awayTeamLogo: awayTeam?.logo_url || null,
           startTime: match.start_time,
           status: match.status,
           homeScore: match.home_score,
@@ -145,17 +166,17 @@ export default async function PalpitesPage() {
     })
     .filter(Boolean) as Array<{
     id: string;
-    matchId: number;
+    matchId: string;
     homeTeamGoals: number;
     awayTeamGoals: number;
     pointsEarned: number;
     isCorrect: boolean;
     isExactScore: boolean;
-    tournamentId: number;
+    tournamentId: string;
     roundNumber: number;
     predictedAt: string;
     match: {
-      id: number;
+      id: string;
       homeTeamName: string;
       homeTeamShortName: string | null;
       homeTeamLogo: string | null;
@@ -169,12 +190,15 @@ export default async function PalpitesPage() {
     };
   }>;
 
+  const userName = `${pr.first_name}${pr.last_name ? ` ${pr.last_name}` : ""}`;
+
   const userData = {
-    id: profile.firebase_id || user.id,
-    name: profile.name || "Jogador",
-    points: profile.points || 0,
-    level: profile.level || 1,
-    role: (profile.role || "user") as "user" | "admin",
+    id: ur.firebase_id || user.id,
+    name: userName || "Jogador",
+    points: pr.total_points || 0,
+    level: pr.level || 1,
+    xp: pr.xp || 0,
+    role: ur.role as "user" | "admin",
   };
 
   const activeTournamentIds = new Set(tournamentsList.map((t) => t.id));
@@ -193,14 +217,14 @@ export default async function PalpitesPage() {
 
   const formattedTournaments = tournamentsWithPredictions.map((t) => ({
     id: t.id,
-    name: t.short_name || t.name,
+    name: t.name,
     logo: t.logo_url || "/images/brasileirao-logo.svg",
   }));
 
-  const allMatchIds = [...new Set(filteredPredictions.map((p) => p.matchId))];
+  const allMatchIdsForOthers = [...new Set(filteredPredictions.map((p) => p.matchId))];
 
   let allPredictionsForMatches: Array<{
-    matchId: number;
+    matchId: string;
     oddsUserId: string;
     userName: string;
     userTeamLogo: string | null;
@@ -211,20 +235,20 @@ export default async function PalpitesPage() {
     isExactScore: boolean;
   }> = [];
 
-  if (allMatchIds.length > 0) {
+  if (allMatchIdsForOthers.length > 0) {
     const { data: otherPreds } = await supabase
       .from("predictions")
-      .select("match_id, user_id, home_team_goals, away_team_goals, points_earned, is_correct, is_exact_score")
-      .in("match_id", allMatchIds)
-      .neq("user_id", firebaseId);
+      .select("match_id, user_id, home_team_goals, away_team_goals, points_earned, is_correct_result, is_exact_score")
+      .in("match_id", allMatchIdsForOthers)
+      .neq("user_id", user.id);
 
     type OtherPredRow = {
-      match_id: number;
+      match_id: string;
       user_id: string;
       home_team_goals: number;
       away_team_goals: number;
-      points_earned: number | null;
-      is_correct: boolean | null;
+      points_earned: number;
+      is_correct_result: boolean | null;
       is_exact_score: boolean | null;
     };
 
@@ -232,38 +256,59 @@ export default async function PalpitesPage() {
 
     if (otherPredRows.length > 0) {
       const otherUserIds = [...new Set(otherPredRows.map((p) => p.user_id))];
+
       const { data: otherProfiles } = await supabase
-        .from("users_profiles")
-        .select("firebase_id, name, favorite_team_logo")
-        .in("firebase_id", otherUserIds);
+        .from("user_profiles")
+        .select("id, first_name, last_name")
+        .in("id", otherUserIds);
 
-      type OtherProfileRow = {
-        firebase_id: string;
-        name: string;
-        favorite_team_logo: string | null;
-      };
-
+      type OtherProfileRow = { id: string; first_name: string; last_name: string | null };
       const otherProfilesList = (otherProfiles as OtherProfileRow[] | null) || [];
-      const otherProfileMap = new Map(otherProfilesList.map((p) => [p.firebase_id, p]));
+      const otherProfileMap = new Map(otherProfilesList.map((p) => [p.id, p]));
+
+      const { data: otherUsersData } = await supabase
+        .from("users")
+        .select("id, favorite_team_id")
+        .in("id", otherUserIds);
+
+      type OtherUserRow = { id: string; favorite_team_id: string | null };
+      const otherUsersRows = (otherUsersData as OtherUserRow[] | null) || [];
+      const otherUsersMap = new Map(otherUsersRows.map((u) => [u.id, u.favorite_team_id]));
+
+      const otherTeamIds = [...new Set(otherUsersRows.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
+      let otherTeamsMap: Map<string, string | null> = new Map();
+      if (otherTeamIds.length > 0) {
+        const { data: otherTeams } = await supabase
+          .from("teams")
+          .select("id, logo_url")
+          .in("id", otherTeamIds);
+        type OtherTeamRow = { id: string; logo_url: string | null };
+        const otherTeamRows = (otherTeams as OtherTeamRow[] | null) || [];
+        otherTeamsMap = new Map(otherTeamRows.map((t) => [t.id, t.logo_url]));
+      }
 
       allPredictionsForMatches = otherPredRows.map((p) => {
         const prof = otherProfileMap.get(p.user_id);
+        const favTeamId = otherUsersMap.get(p.user_id);
+        const teamLogo = favTeamId ? otherTeamsMap.get(favTeamId) ?? null : null;
+        const name = prof ? `${prof.first_name}${prof.last_name ? ` ${prof.last_name}` : ""}` : "Jogador";
+
         return {
           matchId: p.match_id,
           oddsUserId: p.user_id,
-          userName: prof?.name || "Jogador",
-          userTeamLogo: prof?.favorite_team_logo || null,
+          userName: name,
+          userTeamLogo: teamLogo,
           homeTeamGoals: p.home_team_goals,
           awayTeamGoals: p.away_team_goals,
           pointsEarned: p.points_earned || 0,
-          isCorrect: p.is_correct || false,
+          isCorrect: p.is_correct_result || false,
           isExactScore: p.is_exact_score || false,
         };
       });
     }
   }
 
-  const otherPredictionsByMatch: Record<number, typeof allPredictionsForMatches> = {};
+  const otherPredictionsByMatch: Record<string, typeof allPredictionsForMatches> = {};
   allPredictionsForMatches.forEach((p) => {
     if (!otherPredictionsByMatch[p.matchId]) {
       otherPredictionsByMatch[p.matchId] = [];

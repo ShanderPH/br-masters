@@ -498,16 +498,22 @@ export interface Database {
           id: string;
           username: string;
           favorite_team_id: string | null;
+          firebase_id: string | null;
+          role: string;
         };
         Insert: {
           id: string;
           username: string;
           favorite_team_id?: string | null;
+          firebase_id?: string | null;
+          role?: string;
         };
         Update: {
           id?: string;
           username?: string;
           favorite_team_id?: string | null;
+          firebase_id?: string | null;
+          role?: string;
         };
         Relationships: [
           {

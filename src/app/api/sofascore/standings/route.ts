@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 interface StandingTeam {
   id: number;
@@ -29,9 +30,6 @@ interface StandingsResponse {
     category: string;
   };
 }
-
-let standingsCache: { data: StandingsResponse; timestamp: number } | null = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 function getMockStandings(): StandingsResponse {
   return {
@@ -85,127 +83,199 @@ function getMockStandings(): StandingsResponse {
   };
 }
 
+async function fetchFromSofaScore(tournamentId: string, seasonId: string): Promise<StandingsResponse | null> {
+  const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+  const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "sofascore.p.rapidapi.com";
+
+  if (!RAPIDAPI_KEY) {
+    return null;
+  }
+
+  const url = `https://${RAPIDAPI_HOST}/tournaments/get-standings?tournamentId=${tournamentId}&seasonId=${seasonId}&type=total`;
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": RAPIDAPI_HOST,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`SofaScore API error: ${response.status}`);
+      return null;
+    }
+
+    const text = await response.text();
+    if (!text || text.trim().length === 0) {
+      return null;
+    }
+
+    const apiData = JSON.parse(text);
+
+    if (!apiData.standings?.[0]?.rows) {
+      return null;
+    }
+
+    const standings: Standing[] = apiData.standings[0].rows.map(
+      (row: {
+        team: { id: number; name: string; shortName: string; country?: { name: string } };
+        matches: number;
+        wins: number;
+        draws: number;
+        losses: number;
+        scoresFor: number;
+        scoresAgainst: number;
+        points: number;
+      }, index: number) => ({
+        team: {
+          id: row.team.id,
+          name: row.team.name,
+          shortName: row.team.shortName,
+          logo: `/api/team-logo/${row.team.id}`,
+          country: row.team.country?.name || "Brazil",
+        },
+        position: index + 1,
+        matches: row.matches,
+        wins: row.wins,
+        draws: row.draws,
+        losses: row.losses,
+        scoresFor: row.scoresFor,
+        scoresAgainst: row.scoresAgainst,
+        goalDifference: row.scoresFor - row.scoresAgainst,
+        points: row.points,
+      })
+    );
+
+    return {
+      standings,
+      tournament: {
+        id: apiData.tournament?.id || parseInt(tournamentId),
+        name: apiData.tournament?.name || "Brasileirão Série A",
+        category: apiData.tournament?.category || "Brazil",
+      },
+    };
+  } catch (error) {
+    console.error("SofaScore API fetch error:", error);
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const tournamentId = searchParams.get("tournamentId") || process.env.BRASILEIRAO_TOURNAMENT_ID || "325";
-    const seasonId = searchParams.get("seasonId") || process.env.BRASILEIRAO_SEASON_ID || "87678";
+    const sofascoreTournamentId = searchParams.get("tournamentId") || process.env.BRASILEIRAO_TOURNAMENT_ID || "325";
+    const sofascoreSeasonId = searchParams.get("seasonId") || process.env.BRASILEIRAO_SEASON_ID || "87678";
+    const forceRefresh = searchParams.get("refresh") === "true";
 
-    // Check cache first
-    if (standingsCache && Date.now() - standingsCache.timestamp < CACHE_DURATION) {
-      return NextResponse.json(standingsCache.data, {
-        headers: {
-          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-          "X-Cache": "HIT",
-        },
-      });
-    }
-
-    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
-    const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "sofascore.p.rapidapi.com";
-
-    if (!RAPIDAPI_KEY) {
-      console.warn("RAPIDAPI_KEY not configured, using mock data");
+    if (!sofascoreSeasonId || sofascoreSeasonId === "undefined" || sofascoreSeasonId === "null") {
       const mockData = getMockStandings();
       return NextResponse.json(mockData, {
         headers: {
           "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
           "X-Cache": "MOCK",
+          "X-Reason": "missing-season-id",
         },
       });
     }
 
-    const url = `https://${RAPIDAPI_HOST}/tournaments/get-standings?tournamentId=${tournamentId}&seasonId=${seasonId}&type=total`;
+    const supabase = await createClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any;
 
-    let apiData = null;
+    // Find tournament and season by sofascore IDs
+    const { data: tournamentData } = await db
+      .from("tournaments")
+      .select("id, name")
+      .eq("sofascore_id", parseInt(sofascoreTournamentId))
+      .single();
 
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          "X-RapidAPI-Key": RAPIDAPI_KEY,
-          "X-RapidAPI-Host": RAPIDAPI_HOST,
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        },
-        next: { revalidate: 300 },
+    const { data: seasonData } = await db
+      .from("tournament_seasons")
+      .select("id")
+      .eq("sofascore_season_id", parseInt(sofascoreSeasonId))
+      .single();
+
+    type TournamentRow = { id: string; name: string } | null;
+    type SeasonRow = { id: string } | null;
+    const tournament = tournamentData as TournamentRow;
+    const season = seasonData as SeasonRow;
+
+    // If we have tournament and season, check database cache
+    if (tournament?.id && season?.id) {
+      // Check if we should refresh (a match was finished after last cache update)
+      const { data: shouldRefresh } = await db.rpc("should_refresh_standings", {
+        p_tournament_id: tournament.id,
+        p_season_id: season.id,
       });
 
-      if (response.ok) {
-        apiData = await response.json();
-      } else {
-        console.error(`SofaScore API error: ${response.status}`);
-      }
-    } catch (fetchError) {
-      console.error("SofaScore API fetch error:", fetchError);
-    }
+      // If cache is valid and no refresh needed, return cached data
+      if (!forceRefresh && shouldRefresh === false) {
+        const { data: cachedData } = await db.rpc("get_cached_standings", {
+          p_tournament_id: tournament.id,
+          p_season_id: season.id,
+        });
 
-    if (apiData && apiData.standings?.[0]?.rows) {
-      try {
-        const standings: Standing[] = apiData.standings[0].rows.map(
-          (row: {
-            team: { id: number; name: string; shortName: string; country?: { name: string } };
-            matches: number;
-            wins: number;
-            draws: number;
-            losses: number;
-            scoresFor: number;
-            scoresAgainst: number;
-            points: number;
-          }, index: number) => ({
-            team: {
-              id: row.team.id,
-              name: row.team.name,
-              shortName: row.team.shortName,
-              logo: `/api/team-logo/${row.team.id}`,
-              country: row.team.country?.name || "Brazil",
+        if (cachedData) {
+          return NextResponse.json(cachedData as StandingsResponse, {
+            headers: {
+              "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=7200",
+              "X-Cache": "DB-HIT",
             },
-            position: index + 1,
-            matches: row.matches,
-            wins: row.wins,
-            draws: row.draws,
-            losses: row.losses,
-            scoresFor: row.scoresFor,
-            scoresAgainst: row.scoresAgainst,
-            goalDifference: row.scoresFor - row.scoresAgainst,
-            points: row.points,
-          })
-        );
+          });
+        }
+      }
 
-        const transformedData: StandingsResponse = {
-          standings,
-          tournament: {
-            id: apiData.tournament?.id || parseInt(tournamentId),
-            name: apiData.tournament?.name || "Brasileirão Série A",
-            category: apiData.tournament?.category || "Brazil",
-          },
-        };
+      // Need to refresh - fetch from SofaScore API
+      const freshData = await fetchFromSofaScore(sofascoreTournamentId, sofascoreSeasonId);
 
-        standingsCache = {
-          data: transformedData,
-          timestamp: Date.now(),
-        };
+      if (freshData) {
+        // Save to database cache
+        await db.rpc("update_cached_standings", {
+          p_tournament_id: tournament.id,
+          p_season_id: season.id,
+          p_standings_data: freshData,
+        });
 
-        return NextResponse.json(transformedData, {
+        return NextResponse.json(freshData, {
           headers: {
-            "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-            "X-Cache": "MISS",
+            "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=7200",
+            "X-Cache": "DB-MISS",
           },
         });
-      } catch (transformError) {
-        console.error("Error transforming API data:", transformError);
+      }
+
+      // API failed, try to return stale cache
+      const { data: staleCache } = await db.rpc("get_cached_standings", {
+        p_tournament_id: tournament.id,
+        p_season_id: season.id,
+      });
+
+      if (staleCache) {
+        return NextResponse.json(staleCache as StandingsResponse, {
+          headers: {
+            "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+            "X-Cache": "DB-STALE",
+            "X-API-Failed": "true",
+          },
+        });
       }
     }
 
-    if (standingsCache) {
-      return NextResponse.json(standingsCache.data, {
+    // Fallback: no database cache available, try API directly
+    const apiData = await fetchFromSofaScore(sofascoreTournamentId, sofascoreSeasonId);
+    if (apiData) {
+      return NextResponse.json(apiData, {
         headers: {
-          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120",
-          "X-Cache": "STALE",
-          "X-API-Failed": "true",
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+          "X-Cache": "API-DIRECT",
         },
       });
     }
 
+    // Last resort: mock data
     const mockData = getMockStandings();
     return NextResponse.json(mockData, {
       headers: {

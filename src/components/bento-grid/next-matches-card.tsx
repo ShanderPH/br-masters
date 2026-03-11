@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronRight,
@@ -51,14 +51,14 @@ interface NextMatchesCardProps {
   onMatchClick?: (match: Match, prediction?: MatchPrediction) => void;
   userPredictions?: Record<string, MatchPrediction>;
   currentUserId?: string;
-  currentPage?: number;
-  totalPages?: number;
-  onPageChange?: (page: number) => void;
   roundNumber?: number;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  totalMatches?: number;
 }
 
-const UrgencyBadge = ({ hoursUntilMatch }: { hoursUntilMatch: number }) => {
-  if (hoursUntilMatch > 24) return null;
+const UrgencyBadge = ({ hoursUntilMatch, isToday }: { hoursUntilMatch: number; isToday: boolean }) => {
+  if (!isToday || hoursUntilMatch <= 0) return null;
 
   const isVeryUrgent = hoursUntilMatch <= 2;
   const isUrgent = hoursUntilMatch <= 6;
@@ -142,7 +142,6 @@ const MatchItem = ({
     0,
     (matchDate.getTime() - now.getTime()) / (1000 * 60 * 60)
   );
-  const isUrgent = hoursUntilMatch <= 24 && hoursUntilMatch > 0;
 
   const hasStarted = now >= matchDate;
   const canPredict = !hasStarted;
@@ -184,7 +183,7 @@ const MatchItem = ({
         ${hasPrediction ? "border-l-4 border-l-brm-secondary" : ""}
       `}
     >
-      {isUrgent && !hasStarted && <UrgencyBadge hoursUntilMatch={hoursUntilMatch} />}
+      {isToday && !hasStarted && <UrgencyBadge hoursUntilMatch={hoursUntilMatch} isToday={isToday} />}
 
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
@@ -194,6 +193,7 @@ const MatchItem = ({
                 src={match.homeTeam.logo}
                 alt={match.homeTeam.name}
                 fill
+                unoptimized
                 className="object-contain drop-shadow-lg"
               />
             </div>
@@ -226,6 +226,7 @@ const MatchItem = ({
                 src={match.awayTeam.logo}
                 alt={match.awayTeam.name}
                 fill
+                unoptimized
                 className="object-contain drop-shadow-lg"
               />
             </div>
@@ -282,36 +283,33 @@ const MatchItem = ({
           className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-slate-700/50"
         >
           <motion.button
-            initial={{ scale: 0.95 }}
-            animate={{ scale: 1 }}
-            whileHover={{
-              scale: 1.03,
-              transition: { duration: 0.3, ease: "easeOut" },
-            }}
-            whileTap={{ scale: 0.97 }}
-            transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             className={`
-              w-full py-2 sm:py-2.5 rounded-md
+              w-full py-2 sm:py-2.5 -skew-x-6
               font-display font-bold text-[10px] sm:text-xs uppercase tracking-wide
               flex items-center justify-center gap-1.5 sm:gap-2
-              transition-all duration-500 ease-out
-              shadow-lg
+              transition-all duration-300
               ${
                 hasPrediction
-                  ? "bg-brm-secondary/20 hover:bg-brm-secondary/30 text-brm-secondary border border-brm-secondary/30 shadow-brm-secondary/20"
-                  : "bg-brm-primary hover:bg-brm-primary/80 text-white shadow-brm-primary/30"
+                  ? "bg-brm-secondary/20 hover:bg-brm-secondary/30 text-brm-secondary border-l-2 border-brm-secondary"
+                  : "bg-brm-primary hover:bg-brm-primary/90 text-white border-l-2 border-brm-secondary"
               }
             `}
           >
-            {hasPrediction ? (
-              <>
-                <Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span>Editar Palpite</span>
-              </>
-            ) : (
-              <>
-                <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span>Fazer Palpite</span>
-              </>
-            )}
+            <span className="skew-x-6 flex items-center gap-1.5">
+              {hasPrediction ? (
+                <>
+                  <Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  Editar Palpite
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  Fazer Palpite
+                </>
+              )}
+            </span>
           </motion.button>
         </motion.div>
       )}
@@ -325,22 +323,36 @@ export function NextMatchesCard({
   delay = 0,
   onMatchClick,
   userPredictions = {},
-  currentPage = 0,
-  totalPages = 1,
-  onPageChange,
   roundNumber,
+  hasMore = false,
+  onLoadMore,
+  totalMatches: totalMatchCount,
 }: NextMatchesCardProps) {
   const router = useRouter();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const totalMatches = matches.length;
   const predictedMatches = matches.filter((m) => userPredictions[m.id]).length;
 
   const now = new Date();
-  const urgentMatches = matches.filter((m) => {
-    const hoursUntil =
-      (new Date(m.startTime).getTime() - now.getTime()) / (1000 * 60 * 60);
-    return hoursUntil > 0 && hoursUntil <= 24;
+  const todayMatches = matches.filter((m) => {
+    const matchDate = new Date(m.startTime);
+    return matchDate.toDateString() === now.toDateString();
   }).length;
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !hasMore || !onLoadMore) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollTop + clientHeight >= scrollHeight - 50) {
+        onLoadMore();
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [hasMore, onLoadMore]);
 
   if (isLoading) {
     return (
@@ -378,38 +390,30 @@ export function NextMatchesCard({
               <CheckCircle2 className="w-3 h-3 text-brm-secondary" />
               <span className="text-[10px] text-gray-400">
                 <span className="font-bold text-brm-secondary">{predictedMatches}</span>/
-                {totalMatches}
+                {totalMatchCount || matches.length}
               </span>
             </div>
-            {urgentMatches > 0 && (
+            {todayMatches > 0 && (
               <div className="flex items-center gap-1 px-1.5 py-0.5 bg-orange-500/20 rounded-full">
                 <Zap className="w-2.5 h-2.5 text-orange-400" />
                 <span className="text-[9px] text-orange-400 font-bold">
-                  {urgentMatches} hoje
+                  {todayMatches} hoje
                 </span>
               </div>
             )}
           </div>
 
-          {totalPages > 1 && onPageChange && (
-            <div className="flex items-center gap-1">
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button
-                  key={i}
-                  onClick={() => onPageChange(i)}
-                  className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${
-                    i === currentPage
-                      ? "bg-brm-primary w-4"
-                      : "bg-white/20 hover:bg-white/40"
-                  }`}
-                  aria-label={`Página ${i + 1}`}
-                />
-              ))}
-            </div>
+          {hasMore && (
+            <span className="text-[9px] text-gray-500">
+              Role para mais
+            </span>
           )}
         </div>
 
-        <div className="flex-1 flex flex-col gap-1.5 sm:gap-2 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-smooth">
+        <div 
+          ref={scrollContainerRef}
+          className="flex-1 flex flex-col gap-1.5 sm:gap-2 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar scroll-smooth"
+        >
           <AnimatePresence mode="popLayout">
             {matches.map((match, index) => (
               <MatchItem
@@ -460,11 +464,12 @@ export function NextMatchesCardWithData({
   const [matches, setMatches] = useState<Match[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userPredictions, setUserPredictions] = useState<Record<string, MatchPrediction>>({});
-  const [page, setPage] = useState(0);
-  const MATCHES_PER_PAGE = 4;
+  const [visibleCount, setVisibleCount] = useState(4);
+  const INITIAL_MATCHES = 4;
+  const LOAD_MORE_COUNT = 4;
 
   useEffect(() => {
-    setPage(0);
+    setVisibleCount(INITIAL_MATCHES);
   }, [currentTournament?.id, computedRound]);
 
   useEffect(() => {
@@ -475,11 +480,11 @@ export function NextMatchesCardWithData({
         const tournamentId = currentTournament?.id;
 
         let query = supabase
-          .from("matches")
-          .select("id, slug, start_time, status, round_number, home_team_id, home_team_name, home_team_short_name, home_team_logo, away_team_id, away_team_name, away_team_short_name, away_team_logo, tournament_id")
-          .in("status", ["notstarted", "postponed"])
+          .from("upcoming_matches")
+          .select("id, slug, start_time, status, round_number, home_team_id, home_team_name, home_team_code, home_team_logo, away_team_id, away_team_name, away_team_code, away_team_logo, tournament_id, tournament_name")
+          .gte("start_time", new Date().toISOString())
           .order("start_time", { ascending: true })
-          .limit(20);
+          .limit(50);
 
         if (tournamentId) {
           query = query.eq("tournament_id", tournamentId);
@@ -496,43 +501,44 @@ export function NextMatchesCardWithData({
           start_time: string;
           status: string;
           round_number: number | null;
-          home_team_id: number;
+          home_team_id: string;
           home_team_name: string;
-          home_team_short_name: string | null;
+          home_team_code: string | null;
           home_team_logo: string | null;
-          away_team_id: number;
+          away_team_id: string;
           away_team_name: string;
-          away_team_short_name: string | null;
+          away_team_code: string | null;
           away_team_logo: string | null;
-          tournament_id: number;
+          tournament_id: string;
+          tournament_name: string;
         };
 
         const dbMatches = (matchesData as MatchRow[] | null) || [];
 
         const formatted: Match[] = dbMatches.map((m) => ({
-          id: String(m.id),
+          id: m.id,
           homeTeam: {
-            id: String(m.home_team_id),
+            id: m.home_team_id,
             name: m.home_team_name,
-            shortName: m.home_team_short_name || undefined,
+            shortName: m.home_team_code || undefined,
             logo: m.home_team_logo || getTeamLogoPath(m.home_team_name),
           },
           awayTeam: {
-            id: String(m.away_team_id),
+            id: m.away_team_id,
             name: m.away_team_name,
-            shortName: m.away_team_short_name || undefined,
+            shortName: m.away_team_code || undefined,
             logo: m.away_team_logo || getTeamLogoPath(m.away_team_name),
           },
           startTime: m.start_time,
           status: m.status,
           roundNumber: m.round_number || undefined,
-          tournamentName: undefined,
+          tournamentName: m.tournament_name,
         }));
 
-        setMatches(formatted);
+        const predictionsMap: Record<string, MatchPrediction> = {};
 
         if (currentUserId && formatted.length > 0) {
-          const matchIds = formatted.map((m) => Number(m.id));
+          const matchIds = formatted.map((m) => m.id);
           const { data: predictionsData } = await supabase
             .from("predictions")
             .select("match_id, home_team_goals, away_team_goals")
@@ -546,7 +552,6 @@ export function NextMatchesCardWithData({
           };
 
           const predictions = (predictionsData as PredictionRow[] | null) || [];
-          const predictionsMap: Record<string, MatchPrediction> = {};
           predictions.forEach((p) => {
             predictionsMap[String(p.match_id)] = {
               home_team_goals: p.home_team_goals,
@@ -555,6 +560,19 @@ export function NextMatchesCardWithData({
           });
           setUserPredictions(predictionsMap);
         }
+
+        const sortedMatches = [...formatted].sort((a, b) => {
+          const aHasPrediction = !!predictionsMap[a.id];
+          const bHasPrediction = !!predictionsMap[b.id];
+          
+          if (aHasPrediction !== bHasPrediction) {
+            return aHasPrediction ? 1 : -1;
+          }
+          
+          return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
+        });
+
+        setMatches(sortedMatches);
       } catch {
         setMatches([]);
       } finally {
@@ -565,23 +583,24 @@ export function NextMatchesCardWithData({
     fetchData();
   }, [currentUserId, currentTournament?.id, computedRound]);
 
-  const totalPages = Math.ceil(matches.length / MATCHES_PER_PAGE);
-  const paginatedMatches = matches.slice(
-    page * MATCHES_PER_PAGE,
-    (page + 1) * MATCHES_PER_PAGE
-  );
+  const handleLoadMore = () => {
+    setVisibleCount((prev) => Math.min(prev + LOAD_MORE_COUNT, matches.length));
+  };
+
+  const visibleMatches = matches.slice(0, visibleCount);
+  const hasMore = visibleCount < matches.length;
 
   return (
     <NextMatchesCard
-      matches={paginatedMatches}
+      matches={visibleMatches}
       isLoading={isLoading}
       delay={delay}
       onMatchClick={onMatchClick}
       userPredictions={userPredictions}
-      currentPage={page}
-      totalPages={totalPages}
-      onPageChange={setPage}
       roundNumber={computedRound}
+      hasMore={hasMore}
+      onLoadMore={handleLoadMore}
+      totalMatches={matches.length}
     />
   );
 }

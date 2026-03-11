@@ -14,7 +14,7 @@ interface SelectedUser {
   firebase_id: string;
   name: string;
   favorite_team_logo: string | null;
-  avatar: string | null;
+  avatar_url: string | null;
 }
 
 interface LoginScreenProps {
@@ -127,7 +127,7 @@ export function LoginScreen({ onLogin, isLoading = false, error = null }: LoginS
                   </div>
 
                   {/* Form */}
-                  <form onSubmit={handleSubmit} className="space-y-4">
+                  <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
                     {/* User Search */}
                     <div className="space-y-1.5">
                       <label className="text-xs font-semibold text-brm-text-primary uppercase tracking-wider">
@@ -156,6 +156,8 @@ export function LoginScreen({ onLogin, isLoading = false, error = null }: LoginS
                           onChange={(e) => setPassword(e.target.value)}
                           placeholder="••••••"
                           disabled={isLoading}
+                          autoComplete="new-password"
+                          name="brm-password-mobile"
                           className="w-full pl-10 pr-10 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-brm-text-primary placeholder:text-brm-text-muted focus:outline-none focus:ring-2 focus:ring-brm-primary focus:border-transparent transition-all hover:bg-white/15 hover:border-brm-primary/50 rounded-none"
                         />
                         <button
@@ -304,7 +306,7 @@ export function LoginScreen({ onLogin, isLoading = false, error = null }: LoginS
               </div>
 
               {/* Form */}
-              <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
                 {/* User Search */}
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-brm-text-primary uppercase tracking-wider">
@@ -333,6 +335,8 @@ export function LoginScreen({ onLogin, isLoading = false, error = null }: LoginS
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••"
                       disabled={isLoading}
+                      autoComplete="new-password"
+                      name="brm-password-desktop"
                       className="w-full pl-12 pr-12 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-brm-text-primary placeholder:text-brm-text-muted focus:outline-none focus:ring-2 focus:ring-brm-primary focus:border-transparent transition-all hover:bg-white/15 hover:border-brm-primary/50 rounded-none"
                     />
                     <button

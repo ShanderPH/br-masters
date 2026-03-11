@@ -3,11 +3,20 @@
 import type { Session } from "@supabase/supabase-js";
 
 import { getSupabaseClient } from "@/lib/supabase/client";
-import type { UserProfile } from "@/lib/supabase/types";
+import type { User, UserProfile } from "@/lib/supabase/types";
 
 // ============================================================================
 // TIPOS E INTERFACES
 // ============================================================================
+
+export interface AppUser {
+  id: string;
+  username: string;
+  firebase_id: string | null;
+  role: string;
+  favorite_team_id: string | null;
+  profile: UserProfile;
+}
 
 export interface LoginCredentials {
   id: string;
@@ -16,18 +25,48 @@ export interface LoginCredentials {
 
 export interface LoginResponse {
   success: boolean;
-  user?: UserProfile;
+  user?: AppUser;
   session?: Session;
   error?: string;
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+async function fetchAppUser(authUserId: string): Promise<AppUser | null> {
+  const supabase = getSupabaseClient();
+
+  const { data: userRow, error: userError } = await supabase
+    .from("users")
+    .select("*")
+    .eq("id", authUserId)
+    .single();
+
+  if (userError || !userRow) return null;
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("id", authUserId)
+    .single();
+
+  if (profileError || !profile) return null;
+
+  return {
+    id: (userRow as User).id,
+    username: (userRow as User).username,
+    firebase_id: (userRow as User).firebase_id,
+    role: (userRow as User).role,
+    favorite_team_id: (userRow as User).favorite_team_id,
+    profile,
+  };
 }
 
 // ============================================================================
 // AUTENTICAÇÃO
 // ============================================================================
 
-/**
- * Login usando Firebase ID (001-011) e senha numérica
- */
 export async function signIn(credentials: LoginCredentials): Promise<LoginResponse> {
   try {
     const supabase = getSupabaseClient();
@@ -42,24 +81,27 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
 
     const formattedId = id.padStart(3, "0");
 
-    // Buscar perfil do usuário pelo firebase_id
-    const { data: profile, error: profileError } = await supabase
-      .from("users_profiles")
+    const { data: userRow, error: userError } = await supabase
+      .from("users")
       .select("*")
       .eq("firebase_id", formattedId)
       .single();
 
-    if (profileError || !profile) {
+    if (userError || !userRow) {
       return {
         success: false,
         error: "Usuário não encontrado",
       };
     }
 
-    // Email temporário baseado no firebase_id (mantendo compatibilidade com projeto legado)
-    const email = `user${formattedId}@houseofguess.app`;
+    const { data: profileRow } = await supabase
+      .from("user_profiles")
+      .select("email")
+      .eq("id", (userRow as User).id)
+      .single();
 
-    // Fazer login no Supabase Auth
+    const email = (profileRow as { email: string } | null)?.email || `user${formattedId}@houseofguess.app`;
+
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -79,9 +121,11 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
       };
     }
 
+    const appUser = await fetchAppUser(authData.user.id);
+
     return {
       success: true,
-      user: profile,
+      user: appUser ?? undefined,
       session: authData.session,
     };
   } catch (error) {
@@ -93,9 +137,6 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
   }
 }
 
-/**
- * Logout
- */
 export async function signOut(): Promise<void> {
   try {
     const supabase = getSupabaseClient();
@@ -105,60 +146,51 @@ export async function signOut(): Promise<void> {
   }
 }
 
-/**
- * Obter usuário atual
- */
-export async function getCurrentUser(): Promise<UserProfile | null> {
+export async function getCurrentUser(): Promise<AppUser | null> {
   try {
     const supabase = getSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    if (!user) {
-      return null;
-    }
+    if (!user) return null;
 
-    const { data: profile } = await supabase
-      .from("users_profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single();
-
-    return profile;
+    return fetchAppUser(user.id);
   } catch (error) {
     console.error("Erro ao buscar usuário atual:", error);
     return null;
   }
 }
 
-/**
- * Listener para mudanças no estado de autenticação
- */
-export function onAuthStateChange(callback: (user: UserProfile | null) => void) {
+export function onAuthStateChange(callback: (user: AppUser | null) => void) {
   const supabase = getSupabaseClient();
   
   return supabase.auth.onAuthStateChange(async (event, session) => {
     if (session?.user) {
-      const profile = await getCurrentUser();
-      callback(profile);
+      const appUser = await fetchAppUser(session.user.id);
+      callback(appUser);
     } else {
       callback(null);
     }
   });
 }
 
-/**
- * Verificar sessão existente
- */
 export async function checkExistingSession(): Promise<LoginResponse> {
   try {
     const supabase = getSupabaseClient();
     const { data: { session } } = await supabase.auth.getSession();
-    const user = await getCurrentUser();
 
-    if (user && session) {
+    if (!session) {
+      return {
+        success: false,
+        error: "Nenhuma sessão válida encontrada",
+      };
+    }
+
+    const appUser = await fetchAppUser(session.user.id);
+
+    if (appUser) {
       return {
         success: true,
-        user,
+        user: appUser,
         session,
       };
     }

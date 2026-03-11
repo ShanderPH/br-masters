@@ -7,28 +7,25 @@ import { BarChart3, RefreshCw, Edit, Trophy, Target, Award, Calculator, Filter }
 import { useAdminCrud, useSofascoreApi } from "@/hooks/use-admin-crud";
 
 interface TournamentOption {
-  id: number;
+  id: string;
   name: string;
   format: string | null;
-  season_id: number | null;
 }
 
 interface UserPointsRow {
   id: string;
   user_id: string;
-  tournament_id: number;
-  season_id: number | null;
+  tournament_id: string;
+  season_id: string | null;
   points: number;
-  predictions_count: number;
-  exact_scores: number;
-  correct_results: number;
+  reason: string | null;
 }
 
 interface UserProfileRow {
   id: string;
-  firebase_id: string;
-  name: string;
-  points: number | null;
+  first_name: string;
+  last_name: string | null;
+  total_points: number | null;
   predictions_count: number | null;
   xp: number | null;
   level: number | null;
@@ -59,11 +56,13 @@ export default function ScoringManagementPage() {
 
   const [editingUserPoints, setEditingUserPoints] = useState<UserPointsRow | null>(null);
   const [isPointsEditOpen, setIsPointsEditOpen] = useState(false);
+  const [editingUserProfile, setEditingUserProfile] = useState<UserProfileRow | null>(null);
+  const [isUserEditOpen, setIsUserEditOpen] = useState(false);
 
   const fetchTournaments = useCallback(async () => {
     const result = await list<TournamentOption>({
       table: "tournaments",
-      select: "id, name, format, season_id",
+      select: "id, name, format",
       orderBy: { column: "display_order", ascending: true },
       limit: 50,
     });
@@ -72,9 +71,9 @@ export default function ScoringManagementPage() {
 
   const fetchUsers = useCallback(async () => {
     const result = await list<UserProfileRow>({
-      table: "users_profiles",
-      select: "id, firebase_id, name, points, predictions_count, xp, level",
-      orderBy: { column: "points", ascending: false },
+      table: "user_profiles",
+      select: "id, first_name, last_name, total_points, predictions_count, xp, level",
+      orderBy: { column: "total_points", ascending: false },
       limit: 50,
     });
     if (result.data) setUsers(result.data as UserProfileRow[]);
@@ -83,10 +82,10 @@ export default function ScoringManagementPage() {
   const fetchUserPoints = useCallback(async () => {
     const filters: { column: string; operator: string; value: unknown }[] = [];
     if (selectedTournamentId) {
-      filters.push({ column: "tournament_id", operator: "eq", value: Number(selectedTournamentId) });
+      filters.push({ column: "tournament_id", operator: "eq", value: selectedTournamentId });
     }
     const result = await list<UserPointsRow>({
-      table: "user_tournament_points",
+      table: "points_history",
       filters,
       orderBy: { column: "points", ascending: false },
       limit: 100,
@@ -97,22 +96,19 @@ export default function ScoringManagementPage() {
   const fetchRoundScores = useCallback(async () => {
     if (!selectedTournamentId) { setRoundScores([]); return; }
 
-    const tId = Number(selectedTournamentId);
-    const tournament = tournaments.find((t) => t.id === tId);
-    const seasonId = tournament?.season_id;
+    const tId = selectedTournamentId;
 
     interface PredJoin {
       user_id: string;
       points_earned: number | null;
       is_correct: boolean | null;
       is_exact_score: boolean | null;
-      match_id: number;
+      match_id: string;
     }
 
     const predFilters: { column: string; operator: string; value: unknown }[] = [
       { column: "tournament_id", operator: "eq", value: tId },
     ];
-    if (seasonId) predFilters.push({ column: "season_id", operator: "eq", value: seasonId });
 
     const predResult = await list<PredJoin>({
       table: "predictions",
@@ -123,7 +119,7 @@ export default function ScoringManagementPage() {
 
     if (!predResult.data || predResult.data.length === 0) { setRoundScores([]); return; }
 
-    interface MatchRound { id: number; round_number: number }
+    interface MatchRound { id: string; round_number: number }
     const matchResult = await list<MatchRound>({
       table: "matches",
       select: "id, round_number",
@@ -131,7 +127,7 @@ export default function ScoringManagementPage() {
       limit: 5000,
     });
 
-    const matchRoundMap = new Map<number, number>();
+    const matchRoundMap = new Map<string, number>();
     if (matchResult.data) {
       for (const m of matchResult.data as MatchRound[]) {
         matchRoundMap.set(m.id, m.round_number);
@@ -164,12 +160,12 @@ export default function ScoringManagementPage() {
 
     const rows = Array.from(scoreMap.values());
     for (const row of rows) {
-      const user = users.find((u) => u.id === row.user_id || u.firebase_id === row.user_id);
-      row.userName = user?.name || row.user_id.slice(0, 8);
+      const user = users.find((u) => u.id === row.user_id);
+      row.userName = user ? `${user.first_name}${user.last_name ? ` ${user.last_name}` : ""}` : row.user_id.slice(0, 8);
     }
     rows.sort((a, b) => a.round_number - b.round_number || b.points - a.points);
     setRoundScores(rows);
-  }, [list, selectedTournamentId, roundFilter, tournaments, users]);
+  }, [list, selectedTournamentId, roundFilter, users]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -184,33 +180,42 @@ export default function ScoringManagementPage() {
   }, [selectedTournamentId, roundFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getUserName = (userId: string) => {
-    const user = users.find((u) => u.id === userId || u.firebase_id === userId);
-    return user?.name || userId.slice(0, 8);
+    const user = users.find((u) => u.id === userId);
+    return user ? `${user.first_name}${user.last_name ? ` ${user.last_name}` : ""}` : userId.slice(0, 8);
   };
 
   const handleUpdateUserPoints = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingUserPoints) return;
     const fd = new FormData(e.currentTarget);
-    await update("user_tournament_points", editingUserPoints.id, {
+    await update("points_history", editingUserPoints.id, {
       points: Number(fd.get("points")),
-      predictions_count: Number(fd.get("predictions_count")),
-      exact_scores: Number(fd.get("exact_scores")),
-      correct_results: Number(fd.get("correct_results")),
     });
     setIsPointsEditOpen(false);
     setEditingUserPoints(null);
     fetchUserPoints();
   };
 
+  const handleUpdateUserProfile = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingUserProfile) return;
+    const fd = new FormData(e.currentTarget);
+    await update("user_profiles", editingUserProfile.id, {
+      total_points: Number(fd.get("total_points")),
+      xp: Number(fd.get("xp")),
+      level: Number(fd.get("level")),
+    });
+    setIsUserEditOpen(false);
+    setEditingUserProfile(null);
+    fetchUsers();
+  };
+
   const handleCalculateScores = async () => {
     if (!selectedTournamentId) return;
-    const tournament = tournaments.find((t) => t.id === Number(selectedTournamentId));
     setCalcStatus("Calculando pontuação dos palpites...");
     const result = await sofascore.call<{ scored: number; totalPredictions: number; matchesProcessed: number }>({
       action: "calculate_scores",
-      tournamentId: Number(selectedTournamentId),
-      seasonId: tournament?.season_id || undefined,
+      tournamentId: selectedTournamentId,
       round: roundFilter ? Number(roundFilter) : undefined,
     });
     if (result) {
@@ -224,8 +229,8 @@ export default function ScoringManagementPage() {
   };
 
   const overallRanking = users
-    .filter((u) => (u.points ?? 0) > 0 || (u.predictions_count ?? 0) > 0)
-    .sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
+    .filter((u) => (u.total_points ?? 0) > 0 || (u.predictions_count ?? 0) > 0)
+    .sort((a, b) => (b.total_points ?? 0) - (a.total_points ?? 0));
 
   const roundGroups = (() => {
     const groups = new Map<number, RoundScoreRow[]>();
@@ -359,21 +364,28 @@ export default function ScoringManagementPage() {
                     <th className="text-right py-2.5 px-3 font-semibold text-brm-text-muted uppercase hidden sm:table-cell">Palpites</th>
                     <th className="text-right py-2.5 px-3 font-semibold text-brm-text-muted uppercase hidden sm:table-cell">XP</th>
                     <th className="text-right py-2.5 px-3 font-semibold text-brm-text-muted uppercase hidden sm:table-cell">Level</th>
+                    <th className="text-center py-2.5 px-3 font-semibold text-brm-text-muted uppercase">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
                   {overallRanking.map((user, i) => (
-                    <tr key={user.firebase_id} className="border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+                    <tr key={user.id} className="border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
                       <td className="py-2 px-3 text-center">
                         <span className={`font-display font-black text-sm ${i === 0 ? "text-yellow-400" : i === 1 ? "text-gray-300" : i === 2 ? "text-amber-600" : "text-brm-text-muted"}`}>
                           {i + 1}
                         </span>
                       </td>
-                      <td className="py-2 px-3 font-semibold text-brm-text-primary">{user.name}</td>
-                      <td className="py-2 px-3 text-right font-mono font-bold text-brm-secondary">{user.points ?? 0}</td>
+                      <td className="py-2 px-3 font-semibold text-brm-text-primary">{user.first_name}{user.last_name ? ` ${user.last_name}` : ""}</td>
+                      <td className="py-2 px-3 text-right font-mono font-bold text-brm-secondary">{user.total_points ?? 0}</td>
                       <td className="py-2 px-3 text-right font-mono text-brm-text-secondary hidden sm:table-cell">{user.predictions_count ?? 0}</td>
                       <td className="py-2 px-3 text-right font-mono text-brm-text-secondary hidden sm:table-cell">{user.xp ?? 0}</td>
                       <td className="py-2 px-3 text-right font-mono text-brm-text-secondary hidden sm:table-cell">{user.level ?? 1}</td>
+                      <td className="py-2 px-3 text-center">
+                        <Button variant="ghost" size="sm" isIconOnly aria-label="Editar" className="w-7 h-7 min-w-7"
+                          onPress={() => { setEditingUserProfile(user); setIsUserEditOpen(true); }}>
+                          <Edit className="w-3.5 h-3.5 text-brm-primary" />
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -387,7 +399,7 @@ export default function ScoringManagementPage() {
           <Card className="bg-brm-card border border-white/5 overflow-hidden">
             <div className="px-4 py-3 border-b border-white/5">
               <h3 className="font-display font-bold text-sm uppercase tracking-wide text-brm-text-primary">
-                Pontuação por Torneio {selectedTournamentId && `(${tournaments.find(t => t.id === Number(selectedTournamentId))?.name || selectedTournamentId})`}
+                Pontuação por Torneio {selectedTournamentId && `(${tournaments.find(t => t.id === selectedTournamentId)?.name || selectedTournamentId})`}
               </h3>
             </div>
             <div className="overflow-x-auto">
@@ -415,9 +427,9 @@ export default function ScoringManagementPage() {
                         </span>
                       </td>
                       <td className="py-2 px-3 text-right font-mono font-bold text-brm-secondary">{up.points}</td>
-                      <td className="py-2 px-3 text-right font-mono text-brm-text-secondary hidden sm:table-cell">{up.predictions_count}</td>
-                      <td className="py-2 px-3 text-right font-mono text-green-400 hidden sm:table-cell">{up.exact_scores}</td>
-                      <td className="py-2 px-3 text-right font-mono text-blue-400 hidden sm:table-cell">{up.correct_results}</td>
+                      <td className="py-2 px-3 text-right font-mono text-brm-text-secondary hidden sm:table-cell">-</td>
+                      <td className="py-2 px-3 text-right font-mono text-green-400 hidden sm:table-cell">-</td>
+                      <td className="py-2 px-3 text-right font-mono text-blue-400 hidden sm:table-cell">-</td>
                       <td className="py-2 px-3 text-center">
                         <Button variant="ghost" size="sm" isIconOnly aria-label="Editar" className="w-7 h-7 min-w-7"
                           onPress={() => { setEditingUserPoints(up); setIsPointsEditOpen(true); }}>
@@ -514,17 +526,49 @@ export default function ScoringManagementPage() {
                         <Label>Pontos</Label>
                         <Input variant="secondary" type="number" />
                       </TextField>
-                      <TextField name="predictions_count" defaultValue={String(editingUserPoints.predictions_count)}>
-                        <Label>Palpites</Label>
+                      <TextField name="reason" defaultValue={editingUserPoints.reason || ""}>
+                        <Label>Motivo</Label>
+                        <Input variant="secondary" />
+                      </TextField>
+                    </div>
+                  </Modal.Body>
+                  <Modal.Footer>
+                    <Button variant="ghost" slot="close" className="mr-2">Cancelar</Button>
+                    <Button type="submit" className="bg-brm-primary text-brm-primary-foreground">Salvar</Button>
+                  </Modal.Footer>
+                </form>
+              </Modal.Dialog>
+            </Modal.Container>
+          </Modal.Backdrop>
+        </Modal>
+      )}
+
+      {/* Edit User Profile Modal */}
+      {editingUserProfile && (
+        <Modal>
+          <Modal.Backdrop isOpen={isUserEditOpen} onOpenChange={setIsUserEditOpen}>
+            <Modal.Container>
+              <Modal.Dialog className="sm:max-w-[400px] bg-brm-card border border-white/10">
+                <Modal.CloseTrigger />
+                <Modal.Header>
+                  <Modal.Heading className="font-display font-bold text-brm-text-primary">
+                    Ajustar Pontuação - {editingUserProfile.first_name}
+                  </Modal.Heading>
+                </Modal.Header>
+                <form onSubmit={handleUpdateUserProfile}>
+                  <Modal.Body>
+                    <div className="flex flex-col gap-4">
+                      <TextField name="total_points" defaultValue={String(editingUserProfile.total_points ?? 0)}>
+                        <Label>Pontos Totais</Label>
                         <Input variant="secondary" type="number" />
                       </TextField>
                       <div className="grid grid-cols-2 gap-4">
-                        <TextField name="exact_scores" defaultValue={String(editingUserPoints.exact_scores)}>
-                          <Label>Placares Exatos</Label>
+                        <TextField name="xp" defaultValue={String(editingUserProfile.xp ?? 0)}>
+                          <Label>XP</Label>
                           <Input variant="secondary" type="number" />
                         </TextField>
-                        <TextField name="correct_results" defaultValue={String(editingUserPoints.correct_results)}>
-                          <Label>Resultados Corretos</Label>
+                        <TextField name="level" defaultValue={String(editingUserProfile.level ?? 1)}>
+                          <Label>Nível</Label>
                           <Input variant="secondary" type="number" />
                         </TextField>
                       </div>

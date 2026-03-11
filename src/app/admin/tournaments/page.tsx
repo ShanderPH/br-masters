@@ -22,28 +22,20 @@ import {
 import { useAdminCrud, useSofascoreApi } from "@/hooks/use-admin-crud";
 
 interface TournamentRow {
-  id: number;
+  id: string;
   name: string;
   slug: string | null;
-  short_name: string | null;
+  logo_url: string | null;
   country: string | null;
   format: string | null;
-  has_rounds: boolean | null;
-  has_groups: boolean | null;
-  has_playoff_series: boolean | null;
-  status: string | null;
   is_featured: boolean | null;
   display_order: number | null;
-  season_id: number | null;
-  current_phase: string | null;
-  start_date: string | null;
-  end_date: string | null;
   last_sync_at: string | null;
 }
 
 interface SeasonRow {
-  id: number;
-  tournament_id: number;
+  id: string;
+  tournament_id: string;
   name: string;
   year: string | null;
   is_current: boolean | null;
@@ -94,7 +86,7 @@ export default function TournamentsManagementPage() {
     }
   }, [list]);
 
-  const fetchSeasons = useCallback(async (tournamentId: number) => {
+  const fetchSeasons = useCallback(async (tournamentId: string) => {
     const result = await list<SeasonRow>({
       table: "tournament_seasons",
       filters: [{ column: "tournament_id", operator: "eq", value: tournamentId }],
@@ -138,7 +130,7 @@ export default function TournamentsManagementPage() {
     }
   };
 
-  const handleImportMatches = async (tournamentId: number, seasonId: number) => {
+  const handleImportMatches = async (tournamentId: string, seasonId: string) => {
     setImportStatus("Importando partidas do SofaScore (pode demorar)...");
     const result = await sofascore.call<{ count: number; groups: string[]; roundNames: string[] }>({
       action: "import_matches",
@@ -154,7 +146,7 @@ export default function TournamentsManagementPage() {
     }
   };
 
-  const handleImportTeams = async (tournamentId: number, seasonId: number) => {
+  const handleImportTeams = async (tournamentId: string, seasonId: string) => {
     setImportStatus("Importando times...");
     const result = await sofascore.call<{ count: number }>({
       action: "import_teams",
@@ -167,7 +159,7 @@ export default function TournamentsManagementPage() {
     }
   };
 
-  const handleUpdateScores = async (tournamentId: number, seasonId: number) => {
+  const handleUpdateScores = async (tournamentId: string, seasonId: string) => {
     setImportStatus("Atualizando placares...");
     const result = await sofascore.call<{ updated: number; total: number }>({
       action: "update_match_scores",
@@ -186,20 +178,17 @@ export default function TournamentsManagementPage() {
     const fd = new FormData(e.currentTarget);
     await update("tournaments", editingTournament.id, {
       name: fd.get("name") as string,
-      short_name: fd.get("short_name") as string,
-      country: fd.get("country") as string,
+      slug: fd.get("slug") as string,
       format: fd.get("format") as string,
-      status: fd.get("status") as string,
       display_order: Number(fd.get("display_order")),
       is_featured: fd.get("is_featured") === "on",
-      season_id: Number(fd.get("season_id")) || null,
     });
     setIsEditOpen(false);
     setEditingTournament(null);
     fetchTournaments();
   };
 
-  const handleDeleteTournament = async (id: number) => {
+  const handleDeleteTournament = async (id: string) => {
     if (!confirm("Excluir este torneio? Isso pode afetar partidas e pontuações relacionadas.")) return;
     await remove("tournaments", id);
     fetchTournaments();
@@ -271,7 +260,7 @@ export default function TournamentsManagementPage() {
                           {t.is_featured && <Star className="w-3.5 h-3.5 text-brm-secondary fill-brm-secondary shrink-0" />}
                         </div>
                         <p className="text-[10px] text-brm-text-muted mt-0.5">
-                          ID: {t.id} • Season: {t.season_id || "-"} • {t.country}
+                          ID: {t.id} • {t.country}
                         </p>
                       </div>
                       <div className="flex gap-1 shrink-0 ml-2">
@@ -291,18 +280,9 @@ export default function TournamentsManagementPage() {
                         <FormatIcon className="w-3 h-3" />
                         {fmt.label}
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded font-bold uppercase ${
-                        t.status === "active" ? "bg-green-500/20 text-green-400"
-                          : t.status === "finished" ? "bg-gray-500/20 text-gray-400"
-                          : "bg-yellow-500/20 text-yellow-400"
-                      }`}>
-                        {t.status || "upcoming"}
+                      <span className="px-1.5 py-0.5 rounded bg-white/5 font-semibold">
+                        {t.format || "league"}
                       </span>
-                      {t.current_phase && (
-                        <span className="px-1.5 py-0.5 rounded bg-white/5 font-semibold">
-                          {t.current_phase}
-                        </span>
-                      )}
                     </div>
                   </Card>
                 </motion.div>
@@ -320,23 +300,23 @@ export default function TournamentsManagementPage() {
                       {selectedTournament.name}
                     </h3>
                     <p className="text-[10px] text-brm-text-muted">
-                      ID: {selectedTournament.id} • Season: {selectedTournament.season_id} • Formato: {selectedTournament.format}
+                      ID: {selectedTournament.id} • Formato: {selectedTournament.format}
                     </p>
                   </div>
-                  {selectedTournament.season_id && (
+                  {seasons.length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" className="bg-brm-secondary text-brm-secondary-foreground text-xs gap-1"
-                        onPress={() => handleImportMatches(selectedTournament.id, selectedTournament.season_id!)} isDisabled={loading}>
+                        onPress={() => handleImportMatches(selectedTournament.id, seasons[0].id)} isDisabled={loading}>
                         <Download className="w-3.5 h-3.5" />
                         Importar Partidas
                       </Button>
                       <Button size="sm" variant="secondary" className="text-xs gap-1"
-                        onPress={() => handleUpdateScores(selectedTournament.id, selectedTournament.season_id!)} isDisabled={loading}>
+                        onPress={() => handleUpdateScores(selectedTournament.id, seasons[0].id)} isDisabled={loading}>
                         <RefreshCw className="w-3.5 h-3.5" />
                         Atualizar Placares
                       </Button>
                       <Button size="sm" variant="secondary" className="text-xs gap-1"
-                        onPress={() => handleImportTeams(selectedTournament.id, selectedTournament.season_id!)} isDisabled={loading}>
+                        onPress={() => handleImportTeams(selectedTournament.id, seasons[0].id)} isDisabled={loading}>
                         <Users className="w-3.5 h-3.5" />
                         Importar Times
                       </Button>
@@ -393,7 +373,7 @@ export default function TournamentsManagementPage() {
                   placeholder="Ex: 325, 373, 384"
                   value={setupTournamentId}
                   onChange={(e) => setSetupTournamentId(e.target.value)}
-                  className="w-full bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10 focus:border-brm-primary"
+                  className="w-full bg-brm-card text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10 focus:border-brm-primary"
                 />
               </div>
               <div>
@@ -403,7 +383,7 @@ export default function TournamentsManagementPage() {
                   placeholder="Ex: 87678, 89353, 87760"
                   value={setupSeasonId}
                   onChange={(e) => setSetupSeasonId(e.target.value)}
-                  className="w-full bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10 focus:border-brm-primary"
+                  className="w-full bg-brm-card text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10 focus:border-brm-primary"
                 />
               </div>
               <div>
@@ -411,12 +391,12 @@ export default function TournamentsManagementPage() {
                 <select
                   value={setupFormat}
                   onChange={(e) => setSetupFormat(e.target.value)}
-                  className="w-full bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10"
+                  className="w-full bg-brm-card text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10 focus:border-brm-primary"
                 >
-                  <option value="">Auto-detectar</option>
-                  <option value="league">Liga (Pontos Corridos)</option>
-                  <option value="knockout">Mata-Mata (Eliminatórias)</option>
-                  <option value="mixed">Misto (Grupos + Eliminatórias)</option>
+                  <option value="" className="bg-brm-card">Auto-detectar</option>
+                  <option value="league" className="bg-brm-card">Liga (Pontos Corridos)</option>
+                  <option value="knockout" className="bg-brm-card">Mata-Mata (Eliminatórias)</option>
+                  <option value="mixed" className="bg-brm-card">Misto (Grupos + Eliminatórias)</option>
                 </select>
               </div>
             </div>
@@ -447,12 +427,12 @@ export default function TournamentsManagementPage() {
                   </div>
                   <div className="flex gap-2 mt-3">
                     <Button size="sm" className="bg-brm-secondary text-brm-secondary-foreground text-xs gap-1"
-                      onPress={() => handleImportMatches(setupResult.tournament.id, setupResult.tournament.season_id!)} isDisabled={loading}>
+                      onPress={() => handleImportMatches(setupResult.tournament.id, setupResult.seasons[0]?.id || "")} isDisabled={loading || !setupResult.seasons.length}>
                       <Download className="w-3.5 h-3.5" />
                       Importar Partidas
                     </Button>
                     <Button size="sm" variant="secondary" className="text-xs gap-1"
-                      onPress={() => handleImportTeams(setupResult.tournament.id, setupResult.tournament.season_id!)} isDisabled={loading}>
+                      onPress={() => handleImportTeams(setupResult.tournament.id, setupResult.seasons[0]?.id || "")} isDisabled={loading || !setupResult.seasons.length}>
                       <Users className="w-3.5 h-3.5" />
                       Importar Times
                     </Button>
@@ -461,7 +441,7 @@ export default function TournamentsManagementPage() {
               </motion.div>
             )}
 
-            <div className="mt-6 p-4 rounded-lg bg-white/5">
+            <div className="mt-6 p-4 rounded-lg bg-brm-card border border-white/5">
               <h4 className="font-display font-bold text-xs uppercase text-brm-text-secondary mb-3">
                 <Search className="w-3.5 h-3.5 inline mr-1" />
                 Buscar Torneio por Nome
@@ -470,7 +450,7 @@ export default function TournamentsManagementPage() {
                 <input
                   type="text"
                   placeholder="Ex: Brasileirão, Copa do Brasil, Libertadores..."
-                  className="flex-1 bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10"
+                  className="flex-1 bg-brm-card text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10 focus:border-brm-primary"
                   onKeyDown={async (e) => {
                     if (e.key === "Enter") {
                       const result = await sofascore.call<{ tournaments: { id: number; name: string; category?: { name: string } }[] }>({
@@ -512,48 +492,27 @@ export default function TournamentsManagementPage() {
                         <Label>Nome</Label>
                         <Input variant="secondary" />
                       </TextField>
-                      <div className="grid grid-cols-2 gap-4">
-                        <TextField name="short_name" defaultValue={editingTournament.short_name || ""}>
-                          <Label>Nome Curto</Label>
-                          <Input variant="secondary" />
-                        </TextField>
-                        <TextField name="country" defaultValue={editingTournament.country || "Brazil"}>
-                          <Label>País</Label>
-                          <Input variant="secondary" />
-                        </TextField>
-                      </div>
+                      <TextField name="slug" defaultValue={editingTournament.slug || ""}>
+                        <Label>Slug</Label>
+                        <Input variant="secondary" />
+                      </TextField>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-xs font-medium text-brm-text-secondary block mb-1">Formato</label>
                           <select name="format" defaultValue={editingTournament.format || "league"}
-                            className="w-full bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10">
-                            <option value="league">Liga</option>
-                            <option value="knockout">Mata-Mata</option>
-                            <option value="mixed">Misto</option>
+                            className="w-full bg-brm-card text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10 focus:border-brm-primary">
+                            <option value="league" className="bg-brm-card">Liga</option>
+                            <option value="knockout" className="bg-brm-card">Mata-Mata</option>
+                            <option value="mixed" className="bg-brm-card">Misto</option>
                           </select>
                         </div>
-                        <div>
-                          <label className="text-xs font-medium text-brm-text-secondary block mb-1">Status</label>
-                          <select name="status" defaultValue={editingTournament.status || "upcoming"}
-                            className="w-full bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10">
-                            <option value="upcoming">Próximo</option>
-                            <option value="active">Ativo</option>
-                            <option value="finished">Finalizado</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <TextField name="season_id" defaultValue={String(editingTournament.season_id ?? "")}>
-                          <Label>Season ID</Label>
-                          <Input variant="secondary" type="number" />
-                        </TextField>
                         <TextField name="display_order" defaultValue={String(editingTournament.display_order ?? 0)}>
                           <Label>Ordem de Exibição</Label>
                           <Input variant="secondary" type="number" />
                         </TextField>
                       </div>
                       <div className="flex items-center gap-3">
-                        <input type="checkbox" name="is_featured" defaultChecked={editingTournament.is_featured ?? false} className="accent-brm-primary" />
+                        <input type="checkbox" name="is_featured" defaultChecked={editingTournament.is_featured ?? false} className="accent-brm-primary w-4 h-4" />
                         <span className="text-sm text-brm-text-primary">Torneio em destaque</span>
                       </div>
                     </div>

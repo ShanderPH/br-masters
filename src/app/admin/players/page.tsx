@@ -8,11 +8,11 @@ import { UserRoundCog, Search, Edit, Trash2, RefreshCw } from "lucide-react";
 import { useAdminCrud } from "@/hooks/use-admin-crud";
 
 interface PlayerRow {
-  id: number;
+  id: string;
   sofascore_id: string | null;
   name: string;
   short_name: string | null;
-  team_id: number | null;
+  team_id: string | null;
   position: string | null;
   shirt_number: number | null;
   height: number | null;
@@ -100,7 +100,7 @@ export default function PlayersManagementPage() {
     fetchPlayers();
   };
 
-  const handleDeletePlayer = async (id: number) => {
+  const handleDeletePlayer = async (id: string) => {
     if (!confirm("Excluir este jogador?")) return;
     await remove("players", id);
     fetchPlayers();

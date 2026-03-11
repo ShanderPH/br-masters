@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { TrendingUp, Trophy, Loader2 } from "lucide-react";
 import { StandardTile } from "./bento-grid";
 import { createClient } from "@/lib/supabase/client";
+import { useTournamentContext } from "@/components/dashboard/tournament-context";
+import { getScoringConfig, type ScoringConfig } from "@/lib/services/scoring-config";
 
 interface UserStatsCardProps {
   stats?: {
@@ -16,9 +18,10 @@ interface UserStatsCardProps {
   };
   delay?: number;
   isLoading?: boolean;
+  scoringConfig?: ScoringConfig;
 }
 
-export function UserStatsCard({ stats, delay = 0, isLoading = false }: UserStatsCardProps) {
+export function UserStatsCard({ stats, delay = 0, isLoading = false, scoringConfig }: UserStatsCardProps) {
   if (isLoading) {
     return (
       <StandardTile colorTheme="blue" delay={delay}>
@@ -102,13 +105,13 @@ export function UserStatsCard({ stats, delay = 0, isLoading = false }: UserStats
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 bg-brm-secondary" />
                 <span className="font-display text-[9px] text-brm-text-muted dark:text-gray-400">
-                  {stats?.exactScores || 0} exatos
+                  {stats?.exactScores || 0} exatos {scoringConfig && <span className="text-brm-secondary">(+{scoringConfig.exact_score_points})</span>}
                 </span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-2 h-2 bg-brm-primary" />
                 <span className="font-display text-[9px] text-brm-text-muted dark:text-gray-400">
-                  {stats?.correctResults || 0} resultados
+                  {stats?.correctResults || 0} result. {scoringConfig && <span className="text-brm-primary">(+{scoringConfig.correct_result_points})</span>}
                 </span>
               </div>
             </motion.div>
@@ -126,6 +129,7 @@ export function UserStatsCardWithData({
   currentUserId?: string;
   delay?: number;
 }) {
+  const { currentTournament, computedRound } = useTournamentContext();
   const [stats, setStats] = useState({
     predictions: 0,
     accuracy: 0,
@@ -134,6 +138,7 @@ export function UserStatsCardWithData({
     correctResults: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [scoringConfig, setScoringConfig] = useState<ScoringConfig>({ exact_score_points: 5, correct_result_points: 2, incorrect_points: 0 });
 
   useEffect(() => {
     const fetchUserStats = async () => {
@@ -142,38 +147,101 @@ export function UserStatsCardWithData({
         return;
       }
 
+      setIsLoading(true);
+
       try {
         const supabase = createClient();
+        const tournamentId = currentTournament?.id;
+        const roundNumber = computedRound;
 
-        const { data: profileData } = await supabase
-          .from("user_profiles")
-          .select("total_points, predictions_count, correct_predictions, exact_score_predictions")
-          .eq("id", currentUserId)
-          .single();
+        const config = await getScoringConfig();
+        setScoringConfig(config);
 
-        type ProfileRow = {
-          total_points: number;
-          predictions_count: number;
-          correct_predictions: number;
-          exact_score_predictions: number;
-        };
+        if (tournamentId && roundNumber > 0) {
+          const { data: matchesData } = await supabase
+            .from("matches")
+            .select("id, status")
+            .eq("tournament_id", tournamentId)
+            .eq("round_number", roundNumber);
 
-        const profile = profileData as ProfileRow | null;
+          type MatchIdRow = { id: string; status: string };
+          const matches = (matchesData as MatchIdRow[] | null) || [];
+          const matchIds = matches.map((m) => m.id);
+          const finishedMatchIds = matches.filter((m) => m.status === "finished").map((m) => m.id);
 
-        if (profile) {
-          const totalCorrect = profile.correct_predictions + profile.exact_score_predictions;
-          const accuracy =
-            profile.predictions_count > 0
-              ? Math.round((totalCorrect / profile.predictions_count) * 100)
+          if (matchIds.length > 0) {
+            const { data: predsData } = await supabase
+              .from("predictions")
+              .select("points_earned, is_exact_score, is_correct_result, match_id")
+              .eq("user_id", currentUserId)
+              .in("match_id", matchIds);
+
+            type PredRow = {
+              points_earned: number | null;
+              is_exact_score: boolean | null;
+              is_correct_result: boolean | null;
+              match_id: string;
+            };
+
+            const preds = (predsData as PredRow[] | null) || [];
+            const totalPredictions = preds.length;
+            
+            const finishedPreds = preds.filter((p) => finishedMatchIds.includes(p.match_id));
+            const exactScores = finishedPreds.filter((p) => p.is_exact_score).length;
+            const correctResults = finishedPreds.filter(
+              (p) => p.is_correct_result && !p.is_exact_score
+            ).length;
+            const points = finishedPreds.reduce((acc, p) => acc + (p.points_earned || 0), 0);
+            
+            const totalFinished = finishedPreds.length;
+            const fullHits = exactScores;
+            const halfHits = correctResults;
+            const weightedAccuracy = totalFinished > 0
+              ? Math.round(((fullHits * 1 + halfHits * 0.5) / totalFinished) * 100)
               : 0;
 
-          setStats({
-            predictions: profile.predictions_count || 0,
-            accuracy: Math.min(accuracy, 100),
-            points: profile.total_points || 0,
-            exactScores: profile.exact_score_predictions || 0,
-            correctResults: profile.correct_predictions || 0,
-          });
+            setStats({
+              predictions: totalPredictions,
+              accuracy: Math.min(weightedAccuracy, 100),
+              points,
+              exactScores,
+              correctResults,
+            });
+          } else {
+            setStats({ predictions: 0, accuracy: 0, points: 0, exactScores: 0, correctResults: 0 });
+          }
+        } else {
+          const { data: profileData } = await supabase
+            .from("user_profiles")
+            .select("total_points, predictions_count, correct_predictions, exact_score_predictions")
+            .eq("id", currentUserId)
+            .single();
+
+          type ProfileRow = {
+            total_points: number;
+            predictions_count: number;
+            correct_predictions: number;
+            exact_score_predictions: number;
+          };
+
+          const profile = profileData as ProfileRow | null;
+
+          if (profile) {
+            const fullHits = profile.exact_score_predictions || 0;
+            const halfHits = profile.correct_predictions || 0;
+            const totalPreds = profile.predictions_count || 0;
+            const weightedAccuracy = totalPreds > 0
+              ? Math.round(((fullHits * 1 + halfHits * 0.5) / totalPreds) * 100)
+              : 0;
+
+            setStats({
+              predictions: totalPreds,
+              accuracy: Math.min(weightedAccuracy, 100),
+              points: profile.total_points || 0,
+              exactScores: fullHits,
+              correctResults: halfHits,
+            });
+          }
         }
       } catch {
         // Keep default stats
@@ -183,7 +251,7 @@ export function UserStatsCardWithData({
     };
 
     fetchUserStats();
-  }, [currentUserId]);
+  }, [currentUserId, currentTournament?.id, computedRound]);
 
-  return <UserStatsCard stats={stats} delay={delay} isLoading={isLoading} />;
+  return <UserStatsCard stats={stats} delay={delay} isLoading={isLoading} scoringConfig={scoringConfig} />;
 }

@@ -14,9 +14,19 @@ export default async function RankingPage() {
     redirect("/login");
   }
 
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("id, firebase_id, role")
+    .eq("id", user.id)
+    .single();
+
+  if (!userRow) {
+    redirect("/login");
+  }
+
   const { data: profile } = await supabase
-    .from("users_profiles")
-    .select("*")
+    .from("user_profiles")
+    .select("first_name, last_name, total_points, level, xp")
     .eq("id", user.id)
     .single();
 
@@ -24,63 +34,86 @@ export default async function RankingPage() {
     redirect("/login");
   }
 
-  const { data: generalRanking } = await supabase
-    .from("users_profiles")
-    .select("id, firebase_id, name, points, predictions_count, favorite_team_logo")
-    .order("points", { ascending: false })
+  type UserRowT = { id: string; firebase_id: string | null; role: string };
+  type ProfileT = { first_name: string; last_name: string | null; total_points: number; level: number; xp: number };
+  const ur = userRow as UserRowT;
+  const pr = profile as ProfileT;
+
+  const { data: generalProfiles } = await supabase
+    .from("user_profiles")
+    .select("id, first_name, last_name, total_points, predictions_count")
+    .gt("total_points", 0)
+    .order("total_points", { ascending: false })
     .limit(50);
+
+  type GenProfileRow = { id: string; first_name: string; last_name: string | null; total_points: number; predictions_count: number };
+  const genProfiles = (generalProfiles as GenProfileRow[] | null) || [];
+
+  const allGenUserIds = genProfiles.map((p) => p.id);
+  const genTeamsMap: Map<string, string | null> = new Map();
+  if (allGenUserIds.length > 0) {
+    const { data: genUsersData } = await supabase.from("users").select("id, favorite_team_id").in("id", allGenUserIds);
+    type GUR = { id: string; favorite_team_id: string | null };
+    const genUsers = (genUsersData as GUR[] | null) || [];
+    const teamIds = [...new Set(genUsers.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
+    if (teamIds.length > 0) {
+      const { data: td } = await supabase.from("teams").select("id, logo_url").in("id", teamIds);
+      type TR = { id: string; logo_url: string | null };
+      const teamsLookup = new Map(((td as TR[] | null) || []).map((t) => [t.id, t.logo_url]));
+      genUsers.forEach((u) => {
+        genTeamsMap.set(u.id, u.favorite_team_id ? teamsLookup.get(u.favorite_team_id) ?? null : null);
+      });
+    }
+  }
 
   const { data: tournaments } = await supabase
     .from("tournaments")
-    .select("id, name, short_name, logo_url, status")
-    .eq("status", "active")
-    .neq("name", "Copa do Brasil 2026")
+    .select("id, name, slug, logo_url")
     .order("display_order", { ascending: true });
 
-  type TournamentRow = {
-    id: number;
-    name: string;
-    short_name: string | null;
-    logo_url: string | null;
-    status: string;
-  };
-
+  type TournamentRow = { id: string; name: string; slug: string; logo_url: string | null };
   const tournamentsList = (tournaments as TournamentRow[] | null) || [];
 
-  const { data: tournamentPoints } = await supabase
-    .from("user_tournament_points")
-    .select("user_id, tournament_id, points, previous_rank, predictions_count, correct_results, exact_scores")
-    .order("points", { ascending: false });
+  const { data: tournamentPreds } = await supabase
+    .from("predictions")
+    .select("user_id, points_earned, matches!inner(tournament_id)")
+    .not("points_earned", "is", null);
 
-  type TournamentPointRow = {
-    user_id: string;
-    tournament_id: number;
-    points: number;
-    previous_rank: number | null;
-    predictions_count: number;
-    correct_results: number;
-    exact_scores: number;
-  };
+  type TPRow = { user_id: string; points_earned: number; matches: { tournament_id: string } };
+  const tpRows = (tournamentPreds as TPRow[] | null) || [];
 
-  const tpRows = (tournamentPoints as TournamentPointRow[] | null) || [];
+  const tournamentPointsAgg: Map<string, Map<string, number>> = new Map();
+  tpRows.forEach((tp) => {
+    const tournamentId = tp.matches.tournament_id;
+    if (!tournamentPointsAgg.has(tournamentId)) {
+      tournamentPointsAgg.set(tournamentId, new Map());
+    }
+    const userMap = tournamentPointsAgg.get(tournamentId)!;
+    userMap.set(tp.user_id, (userMap.get(tp.user_id) || 0) + (tp.points_earned || 0));
+  });
+
+  const userName = `${pr.first_name}${pr.last_name ? ` ${pr.last_name}` : ""}`;
 
   const userData = {
-    id: profile.firebase_id || user.id,
-    name: profile.name || "Jogador",
-    points: profile.points || 0,
-    level: profile.level || 1,
-    role: (profile.role || "user") as "user" | "admin",
+    id: ur.firebase_id || user.id,
+    name: userName || "Jogador",
+    points: pr.total_points || 0,
+    level: pr.level || 1,
+    xp: pr.xp || 0,
+    role: (ur.role || "user") as "user" | "admin",
   };
 
-  const formattedGeneralRanking = (generalRanking || []).map((player) => ({
-    id: player.firebase_id || player.id,
-    name: player.name || "Jogador",
-    points: player.points || 0,
-    predictions: player.predictions_count || 0,
+  const formattedGeneralRanking = genProfiles.map((p) => ({
+    id: p.id,
+    name: `${p.first_name}${p.last_name ? ` ${p.last_name}` : ""}`,
+    points: p.total_points || 0,
+    predictions: p.predictions_count || 0,
     exactScores: 0,
     accuracy: 0,
-    favoriteTeamLogo: player.favorite_team_logo || null,
+    favoriteTeamLogo: genTeamsMap.get(p.id) ?? null,
   }));
+
+  const genProfileMap = new Map(genProfiles.map((p) => [p.id, p]));
 
   const tournamentRankings: Record<string, Array<{
     id: string;
@@ -94,56 +127,33 @@ export default async function RankingPage() {
     previousRank: number | null;
   }>> = {};
 
-  if (tpRows.length > 0) {
-    const firebaseIds = [...new Set(tpRows.map((tp) => tp.user_id))];
-    const { data: tournamentUsers } = await supabase
-      .from("users_profiles")
-      .select("id, firebase_id, name, favorite_team_logo")
-      .in("firebase_id", firebaseIds);
-
-    const userMap = new Map(
-      (tournamentUsers || []).map((u) => [u.firebase_id, u])
-    );
-
-    tpRows.forEach((tp) => {
-      const tournamentId = String(tp.tournament_id);
-      if (!tournamentRankings[tournamentId]) {
-        tournamentRankings[tournamentId] = [];
-      }
-
-      const userProfile = userMap.get(tp.user_id);
-      if (userProfile) {
-        const totalCorrect = (tp.correct_results || 0) + (tp.exact_scores || 0);
-        const accuracy = tp.predictions_count > 0
-          ? Math.round((totalCorrect / tp.predictions_count) * 100)
-          : 0;
-
-        tournamentRankings[tournamentId].push({
-          id: userProfile.firebase_id || userProfile.id,
-          name: userProfile.name || "Jogador",
-          points: tp.points || 0,
-          predictions: tp.predictions_count || 0,
-          exactScores: tp.exact_scores || 0,
-          accuracy: Math.min(accuracy, 100),
-          favoriteTeamLogo: userProfile.favorite_team_logo || null,
-          currentRank: null,
-          previousRank: tp.previous_rank,
-        });
-      }
+  tournamentPointsAgg.forEach((userMap, tournamentId) => {
+    const entries = [...userMap.entries()]
+      .filter(([, points]) => points > 0)
+      .sort((a, b) => b[1] - a[1]);
+    tournamentRankings[tournamentId] = entries.map(([userId, points]) => {
+      const gp = genProfileMap.get(userId);
+      return {
+        id: userId,
+        name: gp ? `${gp.first_name}${gp.last_name ? ` ${gp.last_name}` : ""}` : "Jogador",
+        points,
+        predictions: gp?.predictions_count || 0,
+        exactScores: 0,
+        accuracy: 0,
+        favoriteTeamLogo: genTeamsMap.get(userId) ?? null,
+        currentRank: null,
+        previousRank: null,
+      };
     });
-
-    Object.keys(tournamentRankings).forEach((key) => {
-      tournamentRankings[key].sort((a, b) => b.points - a.points);
-    });
-  }
+  });
 
   const tournamentsWithData = tournamentsList.filter((t) =>
-    tournamentRankings[String(t.id)]?.length > 0
+    tournamentRankings[t.id]?.length > 0
   );
 
   const formattedTournaments = tournamentsWithData.map((t) => ({
-    id: String(t.id),
-    name: t.short_name || t.name,
+    id: t.id,
+    name: t.name,
     logo: t.logo_url || "/images/brasileirao-logo.svg",
   }));
 

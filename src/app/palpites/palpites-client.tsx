@@ -29,11 +29,12 @@ interface PalpitesUser {
   name: string;
   points: number;
   level: number;
+  xp: number;
   role: "user" | "admin";
 }
 
 interface PredictionMatch {
-  id: number;
+  id: string;
   homeTeamName: string;
   homeTeamShortName: string | null;
   homeTeamLogo: string | null;
@@ -48,26 +49,26 @@ interface PredictionMatch {
 
 interface Prediction {
   id: string;
-  matchId: number;
+  matchId: string;
   homeTeamGoals: number;
   awayTeamGoals: number;
   pointsEarned: number;
   isCorrect: boolean;
   isExactScore: boolean;
-  tournamentId: number;
+  tournamentId: string;
   roundNumber: number;
   predictedAt: string;
   match: PredictionMatch;
 }
 
 interface TournamentOption {
-  id: number;
+  id: string;
   name: string;
   logo: string;
 }
 
 interface OtherPrediction {
-  matchId: number;
+  matchId: string;
   oddsUserId: string;
   userName: string;
   userTeamLogo: string | null;
@@ -82,8 +83,8 @@ interface PalpitesClientProps {
   user: PalpitesUser;
   predictions: Prediction[];
   tournaments: TournamentOption[];
-  currentRounds: Record<number, number>;
-  otherPredictionsByMatch: Record<number, OtherPrediction[]>;
+  currentRounds: Record<string, number>;
+  otherPredictionsByMatch: Record<string, OtherPrediction[]>;
 }
 
 const ResultBadge = ({ prediction }: { prediction: Prediction }) => {
@@ -343,11 +344,18 @@ export function PalpitesClient({
 }: PalpitesClientProps) {
   const router = useRouter();
 
-  const defaultTournament = tournaments[0]?.id || 0;
-  const defaultRound = currentRounds[defaultTournament] || 1;
+  const defaultTournament = tournaments[0]?.id || "";
+  
+  const getInitialRound = () => {
+    const tournamentPreds = predictions.filter((p) => p.tournamentId === defaultTournament);
+    const rounds = [...new Set(tournamentPreds.map((p) => p.roundNumber))].sort((a, b) => b - a);
+    const currentRound = currentRounds[defaultTournament] || 1;
+    if (rounds.includes(currentRound)) return currentRound;
+    return rounds[0] || currentRound;
+  };
 
   const [selectedTournament, setSelectedTournament] = useState(defaultTournament);
-  const [selectedRound, setSelectedRound] = useState(defaultRound);
+  const [selectedRound, setSelectedRound] = useState(getInitialRound);
 
   const handleLogout = async () => {
     await signOut();
@@ -379,9 +387,12 @@ export function PalpitesClient({
     return { total, correct, exact, points, finishedCount: finished.length };
   }, [roundPredictions]);
 
-  const handleTournamentChange = (tournamentId: number) => {
+  const handleTournamentChange = (tournamentId: string) => {
     setSelectedTournament(tournamentId);
-    const newRound = currentRounds[tournamentId] || 1;
+    const tournamentPreds = predictions.filter((p) => p.tournamentId === tournamentId);
+    const rounds = [...new Set(tournamentPreds.map((p) => p.roundNumber))].sort((a, b) => b - a);
+    const currentRound = currentRounds[tournamentId] || 1;
+    const newRound = rounds.includes(currentRound) ? currentRound : (rounds[0] || currentRound);
     setSelectedRound(newRound);
   };
 
@@ -414,6 +425,7 @@ export function PalpitesClient({
             name: user.name,
             points: user.points,
             level: user.level,
+            xp: user.xp,
             role: user.role,
           }}
           onLogout={handleLogout}

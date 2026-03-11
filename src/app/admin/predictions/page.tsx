@@ -16,32 +16,44 @@ import Image from "next/image";
 import { useAdminCrud } from "@/hooks/use-admin-crud";
 
 interface TournamentOption {
-  id: number;
+  id: string;
   name: string;
   format: string | null;
-  season_id: number | null;
 }
 
 interface PredictionRow {
   id: string;
   user_id: string;
-  match_id: number;
+  match_id: string;
   home_team_goals: number;
   away_team_goals: number;
   winner_team: string;
   points_earned: number | null;
   is_correct: boolean | null;
   is_exact_score: boolean | null;
-  tournament_id: number | null;
-  season_id: number | null;
+  tournament_id: string | null;
+  season_id: string | null;
   predicted_at: string;
 }
 
-interface MatchInfo {
-  id: number;
+interface MatchInfoRaw {
+  id: string;
   round_number: number;
   round_name: string | null;
-  group_name: string | null;
+  home_score: number;
+  away_score: number;
+  status: string;
+  start_time: string;
+  tournament_id: string;
+  season_id: string | null;
+  home_team: { name: string; name_code: string | null; logo_url: string | null } | null;
+  away_team: { name: string; name_code: string | null; logo_url: string | null } | null;
+}
+
+interface MatchInfo {
+  id: string;
+  round_number: number;
+  round_name: string | null;
   home_team_name: string;
   home_team_short_name: string | null;
   home_team_logo: string | null;
@@ -52,14 +64,14 @@ interface MatchInfo {
   away_score: number;
   status: string;
   start_time: string;
-  tournament_id: number;
-  season_id: number | null;
+  tournament_id: string;
+  season_id: string | null;
 }
 
 interface UserProfileRow {
   id: string;
-  firebase_id: string;
-  name: string;
+  first_name: string;
+  last_name: string | null;
 }
 
 interface RoundGroup {
@@ -89,7 +101,7 @@ export default function PredictionsManagementPage() {
   const [users, setUsers] = useState<UserProfileRow[]>([]);
   const [totalCount, setTotalCount] = useState(0);
 
-  const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
   const [roundFilter, setRoundFilter] = useState("");
   const [userFilter, setUserFilter] = useState("");
   const [page, setPage] = useState(0);
@@ -103,7 +115,7 @@ export default function PredictionsManagementPage() {
   const fetchTournaments = useCallback(async () => {
     const result = await list<TournamentOption>({
       table: "tournaments",
-      select: "id, name, format, season_id",
+      select: "id, name, format",
       orderBy: { column: "display_order", ascending: true },
       limit: 50,
     });
@@ -112,8 +124,8 @@ export default function PredictionsManagementPage() {
 
   const fetchUsers = useCallback(async () => {
     const result = await list<UserProfileRow>({
-      table: "users_profiles",
-      select: "id, firebase_id, name",
+      table: "user_profiles",
+      select: "id, first_name, last_name",
       limit: 100,
     });
     if (result.data) setUsers(result.data as UserProfileRow[]);
@@ -143,12 +155,32 @@ export default function PredictionsManagementPage() {
 
       const matchIds = [...new Set((result.data as PredictionRow[]).map((p) => p.match_id))];
       if (matchIds.length > 0) {
-        const matchResult = await list<MatchInfo>({
+        const matchResult = await list<MatchInfoRaw>({
           table: "matches",
+          select: "id, round_number, round_name, home_score, away_score, status, start_time, tournament_id, season_id, home_team:teams!matches_home_team_id_fkey(name, name_code, logo_url), away_team:teams!matches_away_team_id_fkey(name, name_code, logo_url)",
           filters: [{ column: "id", operator: "in", value: matchIds }],
           limit: matchIds.length,
         });
-        if (matchResult.data) setMatches(matchResult.data as MatchInfo[]);
+        if (matchResult.data) {
+          const mapped: MatchInfo[] = (matchResult.data as MatchInfoRaw[]).map((m) => ({
+            id: m.id,
+            round_number: m.round_number,
+            round_name: m.round_name,
+            home_team_name: m.home_team?.name || "?",
+            home_team_short_name: m.home_team?.name_code || null,
+            home_team_logo: m.home_team?.logo_url || null,
+            away_team_name: m.away_team?.name || "?",
+            away_team_short_name: m.away_team?.name_code || null,
+            away_team_logo: m.away_team?.logo_url || null,
+            home_score: m.home_score,
+            away_score: m.away_score,
+            status: m.status,
+            start_time: m.start_time,
+            tournament_id: m.tournament_id,
+            season_id: m.season_id,
+          }));
+          setMatches(mapped);
+        }
       }
     }
   }, [list, selectedTournamentId, userFilter, page]);
@@ -165,8 +197,8 @@ export default function PredictionsManagementPage() {
   }, [selectedTournamentId, userFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getUserName = (userId: string) => {
-    const user = users.find((u) => u.id === userId || u.firebase_id === userId);
-    return user?.name || userId.slice(0, 8);
+    const user = users.find((u) => u.id === userId);
+    return user ? `${user.first_name}${user.last_name ? ` ${user.last_name}` : ""}` : userId.slice(0, 8);
   };
 
   const matchMap = new Map(matches.map((m) => [m.id, m]));
@@ -184,7 +216,7 @@ export default function PredictionsManagementPage() {
         groups.set(roundNum, {
           round: roundNum,
           roundName: match?.round_name || null,
-          groupName: match?.group_name || null,
+          groupName: null,
           predictions: [],
           totalPoints: 0,
           exactScores: 0,
@@ -253,7 +285,7 @@ export default function PredictionsManagementPage() {
         <div className="flex flex-wrap gap-3">
           <select
             value={selectedTournamentId ?? ""}
-            onChange={(e) => { setSelectedTournamentId(e.target.value ? Number(e.target.value) : null); setPage(0); }}
+            onChange={(e) => { setSelectedTournamentId(e.target.value || null); setPage(0); }}
             className="bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10"
           >
             <option value="">Todos os Torneios</option>
@@ -268,7 +300,7 @@ export default function PredictionsManagementPage() {
           >
             <option value="">Todos os Usuários</option>
             {users.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
+              <option key={u.id} value={u.id}>{u.first_name}{u.last_name ? ` ${u.last_name}` : ""}</option>
             ))}
           </select>
           <input
@@ -281,7 +313,6 @@ export default function PredictionsManagementPage() {
           {selectedTournament && (
             <span className="self-center text-[10px] font-bold uppercase text-brm-text-muted bg-white/5 px-2 py-1 rounded">
               {selectedTournament.format === "league" ? "Liga" : selectedTournament.format === "knockout" ? "Mata-Mata" : selectedTournament.format === "mixed" ? "Misto" : selectedTournament.format}
-              {selectedTournament.season_id && ` • Season ${selectedTournament.season_id}`}
             </span>
           )}
         </div>
@@ -445,7 +476,7 @@ export default function PredictionsManagementPage() {
                       <tr key={pred.id} className="border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
                         <td className="py-2 px-3 font-semibold text-brm-text-primary">{getUserName(pred.user_id)}</td>
                         <td className="py-2 px-3 text-center font-mono text-brm-text-secondary">
-                          {match?.round_name || (match?.group_name ? `${match.group_name} R${match.round_number}` : `R${match?.round_number ?? "?"}`)}
+                          {match?.round_name || `R${match?.round_number ?? "?"}`}
                         </td>
                         <td className="py-2 px-3 text-center text-brm-text-secondary">
                           {match ? `${match.home_team_short_name || match.home_team_name} × ${match.away_team_short_name || match.away_team_name}` : `#${pred.match_id}`}

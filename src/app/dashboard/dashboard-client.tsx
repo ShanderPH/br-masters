@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Navbar } from "@/components/layout/navbar";
@@ -12,15 +13,23 @@ import {
   PrizePoolCard,
   UserStatsCard,
   StandingsCard,
+  LatestMatchesCard,
+  BestOfRoundCard,
+  LatestPredictionsCard,
+  PredictionModalSimple,
 } from "@/components/bento-grid";
-import type { Match } from "@/components/bento-grid";
+import type { Match, MatchPrediction } from "@/components/bento-grid";
+import { DepositModal } from "@/components/payments/deposit-modal";
 import { signOut } from "@/lib/auth/auth-service";
+import { createClient } from "@/lib/supabase/client";
 
 interface DashboardUser {
   id: string;
+  supabaseId: string;
   name: string;
   points: number;
   level: number;
+  xp: number;
   role: "user" | "admin";
 }
 
@@ -61,6 +70,11 @@ export function DashboardClient({
   prizePool,
 }: DashboardClientProps) {
   const router = useRouter();
+  const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [selectedPrediction, setSelectedPrediction] = useState<MatchPrediction | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isDepositOpen, setIsDepositOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handleLogout = async () => {
     await signOut();
@@ -69,12 +83,73 @@ export function DashboardClient({
   };
 
   const handleDeposit = () => {
-    router.push("/partidas");
+    setIsDepositOpen(true);
   };
 
-  const handleMatchClick = (match: Match) => {
-    router.push(`/partidas?match=${match.id}`);
-  };
+  const handleMatchClick = useCallback((match: Match, prediction?: MatchPrediction) => {
+    setSelectedMatch(match);
+    setSelectedPrediction(prediction || null);
+    setIsModalOpen(true);
+  }, []);
+
+  const handleCloseModal = useCallback(() => {
+    setIsModalOpen(false);
+    setSelectedMatch(null);
+    setSelectedPrediction(null);
+  }, []);
+
+  const handleSubmitPrediction = useCallback(async (matchId: string, homeScore: number, awayScore: number): Promise<boolean> => {
+    try {
+      const supabase = createClient();
+      
+      const winner = homeScore > awayScore ? "home" : homeScore < awayScore ? "away" : "draw";
+      
+      const { data: existingPrediction } = await supabase
+        .from("predictions")
+        .select("id")
+        .eq("user_id", user.supabaseId)
+        .eq("match_id", matchId)
+        .maybeSingle();
+
+      if (existingPrediction) {
+        const { error } = await supabase
+          .from("predictions")
+          .update({
+            home_team_goals: homeScore,
+            away_team_goals: awayScore,
+            winner,
+            updated_at: new Date().toISOString(),
+          } as never)
+          .eq("id", (existingPrediction as { id: string }).id);
+
+        if (error) {
+          console.error("Error updating prediction:", error);
+          return false;
+        }
+      } else {
+        const { error } = await supabase
+          .from("predictions")
+          .insert({
+            user_id: user.supabaseId,
+            match_id: matchId,
+            home_team_goals: homeScore,
+            away_team_goals: awayScore,
+            winner,
+          } as never);
+
+        if (error) {
+          console.error("Error creating prediction:", error);
+          return false;
+        }
+      }
+
+      setRefreshKey((prev) => prev + 1);
+      return true;
+    } catch (error) {
+      console.error("Error submitting prediction:", error);
+      return false;
+    }
+  }, [user.supabaseId]);
 
   const userStats = {
     predictions: stats.totalPredictions,
@@ -97,6 +172,7 @@ export function DashboardClient({
               name: user.name,
               points: user.points,
               level: user.level,
+              xp: user.xp,
               role: user.role,
             }}
             onLogout={handleLogout}
@@ -113,27 +189,45 @@ export function DashboardClient({
                 <TournamentCardWithData delay={0} />
 
                 <NextMatchesCardWithData
+                  key={`matches-${refreshKey}`}
                   delay={0.1}
-                  currentUserId={user.id}
+                  currentUserId={user.supabaseId}
                   onMatchClick={handleMatchClick}
                 />
 
-                <RankingCardWithData currentUserId={user.id} delay={0.15} />
+                <RankingCardWithData currentUserId={user.supabaseId} delay={0.15} />
+
+                <LatestPredictionsCard delay={0.2} />
 
                 <PrizePoolCard
                   prizePool={prizePool}
                   onClick={handleDeposit}
-                  delay={0.2}
+                  delay={0.25}
                 />
 
-                <UserStatsCard stats={userStats} delay={0.25} />
+                <UserStatsCard stats={userStats} delay={0.3} />
 
-                <StandingsCard delay={0.3} />
+                <StandingsCard delay={0.35} />
+
+                <LatestMatchesCard delay={0.4} />
+
+                <BestOfRoundCard delay={0.45} />
               </BentoGrid>
             </motion.section>
           </main>
         </div>
       </div>
+      <PredictionModalSimple
+        match={selectedMatch}
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        onSubmit={handleSubmitPrediction}
+        initialPrediction={selectedPrediction}
+      />
+      <DepositModal
+        isOpen={isDepositOpen}
+        onOpenChange={setIsDepositOpen}
+      />
     </TournamentProvider>
   );
 }

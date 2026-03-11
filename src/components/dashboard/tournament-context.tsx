@@ -4,30 +4,24 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { createClient } from "@/lib/supabase/client";
 
 interface Tournament {
-  id: number;
+  id: string;
   name: string;
-  short_name?: string;
+  slug: string;
   logo_url?: string;
-  wallpaper_url?: string;
-  status: "upcoming" | "active" | "finished";
   format: string;
-  current_phase?: string;
-  season_id?: number;
-  most_titles_team_name?: string;
-  most_titles_count?: number;
-  last_champions?: Array<{ year: string; team_name: string; team_id: number }>;
   is_featured?: boolean;
   display_order?: number;
+  sofascore_id?: number | null;
 }
 
 interface TournamentSeason {
-  id: number;
-  tournament_id: number;
-  name: string;
+  id: string;
+  tournament_id: string;
   year?: string;
   is_current: boolean;
   current_round_type?: string;
   current_round_number?: number;
+  sofascore_season_id?: number | null;
 }
 
 interface TournamentContextType {
@@ -60,7 +54,7 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
   const [seasons, setSeasons] = useState<TournamentSeason[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [computedRounds, setComputedRounds] = useState<Record<number, number>>({});
+  const [computedRounds, setComputedRounds] = useState<Record<string, number>>({});
 
   const currentTournament = tournaments[currentIndex] || null;
   const currentSeason = seasons.find(
@@ -80,26 +74,18 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
 
         const { data: tournamentsData } = await supabase
           .from("tournaments")
-          .select("*")
-          .in("status", ["active", "upcoming"])
+          .select("id, name, slug, logo_url, format, is_featured, display_order, sofascore_id")
           .order("display_order", { ascending: true });
 
         type TournamentRow = {
-          id: number;
+          id: string;
           name: string;
           slug: string;
-          short_name: string | null;
           logo_url: string | null;
-          wallpaper_url: string | null;
           is_featured: boolean;
           display_order: number;
           format: string;
-          season_id: number | null;
-          status: string;
-          current_phase: string | null;
-          most_titles_team_name: string | null;
-          most_titles_count: number;
-          last_champions: Array<{ year: string; team_name: string; team_id: number }> | null;
+          sofascore_id: number | null;
         };
 
         const rows = (tournamentsData as TournamentRow[] | null) || [];
@@ -107,18 +93,12 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
         const formatted: Tournament[] = rows.map((t) => ({
           id: t.id,
           name: t.name,
-          short_name: t.short_name || t.name,
+          slug: t.slug,
           logo_url: t.logo_url || "/images/brasileirao-logo.svg",
-          wallpaper_url: t.wallpaper_url || undefined,
-          status: (t.status === "active" ? "active" : t.status === "finished" ? "finished" : "upcoming") as Tournament["status"],
           format: t.format || "league",
-          current_phase: t.current_phase || undefined,
-          season_id: t.season_id || undefined,
-          most_titles_team_name: t.most_titles_team_name || undefined,
-          most_titles_count: t.most_titles_count || 0,
-          last_champions: t.last_champions || [],
           is_featured: t.is_featured,
           display_order: t.display_order,
+          sofascore_id: t.sofascore_id,
         }));
 
         const featuredFirst = formatted.filter((t) => t.is_featured);
@@ -129,18 +109,18 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
           const tournamentIds = rows.map((t) => t.id);
           const { data: seasonsData } = await supabase
             .from("tournament_seasons")
-            .select("*")
+            .select("id, tournament_id, year, is_current, current_round_type, current_round_number, sofascore_season_id")
             .in("tournament_id", tournamentIds)
             .eq("is_current", true);
 
           type SeasonRow = {
-            id: number;
-            tournament_id: number;
-            name: string;
+            id: string;
+            tournament_id: string;
             year: string | null;
             is_current: boolean;
             current_round_type: string | null;
             current_round_number: number | null;
+            sofascore_season_id: number | null;
           };
 
           const seasonRows = (seasonsData as SeasonRow[] | null) || [];
@@ -148,11 +128,11 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
             seasonRows.map((s) => ({
               id: s.id,
               tournament_id: s.tournament_id,
-              name: s.name,
               year: s.year || undefined,
               is_current: s.is_current,
               current_round_type: s.current_round_type || undefined,
               current_round_number: s.current_round_number || undefined,
+              sofascore_season_id: s.sofascore_season_id,
             }))
           );
 
@@ -169,38 +149,65 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
   }, []);
 
   const computeAutoRounds = async (
-    tournamentIds: number[],
-    seasonRows: Array<{ id: number; tournament_id: number; current_round_number: number | null }>,
+    tournamentIds: string[],
+    _seasonRows: Array<{ id: string; tournament_id: string; current_round_number: number | null }>,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     supabase: any
   ) => {
-    const roundMap: Record<number, number> = {};
+    const roundMap: Record<string, number> = {};
 
     for (const tId of tournamentIds) {
-      const season = seasonRows.find((s) => s.tournament_id === tId);
-      const baseRound = season?.current_round_number || 1;
-
-      const { data: roundMatches } = await supabase
+      const { data: matchesData } = await supabase
         .from("matches")
-        .select("id, status")
+        .select("round_number, status, start_time")
         .eq("tournament_id", tId)
-        .eq("round_number", baseRound);
+        .order("round_number", { ascending: true });
 
-      type MatchStatus = { id: number; status: string };
-      const matches = (roundMatches as MatchStatus[] | null) || [];
+      type MatchRow = { round_number: number; status: string; start_time: string };
+      const matches = (matchesData as MatchRow[] | null) || [];
 
-      if (matches.length > 0) {
-        const finishedCount = matches.filter((m) => m.status === "finished").length;
-        const threshold = Math.ceil(matches.length * 0.9);
-
-        if (finishedCount >= threshold) {
-          roundMap[tId] = baseRound + 1;
-        } else {
-          roundMap[tId] = baseRound;
-        }
-      } else {
-        roundMap[tId] = baseRound;
+      if (matches.length === 0) {
+        roundMap[tId] = 1;
+        continue;
       }
+
+      const roundStats = new Map<number, { total: number; finished: number; live: number; scheduled: number; hasLive: boolean }>();
+      
+      for (const m of matches) {
+        const rn = m.round_number;
+        if (!roundStats.has(rn)) {
+          roundStats.set(rn, { total: 0, finished: 0, live: 0, scheduled: 0, hasLive: false });
+        }
+        const stats = roundStats.get(rn)!;
+        stats.total++;
+        if (m.status === "finished") stats.finished++;
+        else if (m.status === "live") { stats.live++; stats.hasLive = true; }
+        else if (m.status === "scheduled") stats.scheduled++;
+      }
+
+      const sortedRounds = Array.from(roundStats.keys()).sort((a, b) => a - b);
+      let currentRound = 1;
+
+      for (const rn of sortedRounds) {
+        const stats = roundStats.get(rn)!;
+        
+        if (stats.hasLive) {
+          currentRound = rn;
+          break;
+        }
+        
+        if (stats.scheduled > 0 && stats.finished < stats.total) {
+          currentRound = rn;
+          break;
+        }
+        
+        if (stats.finished === stats.total) {
+          currentRound = rn + 1;
+        }
+      }
+
+      const maxRound = Math.max(...sortedRounds);
+      roundMap[tId] = Math.min(currentRound, maxRound);
     }
 
     setComputedRounds(roundMap);

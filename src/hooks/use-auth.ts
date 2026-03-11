@@ -2,19 +2,19 @@
 
 import { useState, useEffect, useCallback } from "react";
 
-import type { UserProfile } from "@/lib/supabase/types";
 import {
   signIn,
   signOut,
   getCurrentUser,
   checkExistingSession,
   onAuthStateChange,
+  type AppUser,
   type LoginCredentials,
   type LoginResponse,
 } from "@/lib/auth";
 
 interface UseAuthReturn {
-  user: UserProfile | null;
+  user: AppUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -24,10 +24,9 @@ interface UseAuthReturn {
 }
 
 export function useAuth(): UseAuthReturn {
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check for existing session on mount
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -44,9 +43,8 @@ export function useAuth(): UseAuthReturn {
 
     initAuth();
 
-    // Subscribe to auth state changes
-    const { data: { subscription } } = onAuthStateChange((profile) => {
-      setUser(profile);
+    const { data: { subscription } } = onAuthStateChange((appUser) => {
+      setUser(appUser);
       setIsLoading(false);
     });
 
@@ -79,8 +77,8 @@ export function useAuth(): UseAuthReturn {
   }, []);
 
   const refreshUser = useCallback(async () => {
-    const profile = await getCurrentUser();
-    setUser(profile);
+    const appUser = await getCurrentUser();
+    setUser(appUser);
   }, []);
 
   return {

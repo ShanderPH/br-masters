@@ -1,50 +1,77 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 async function verifyAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data: profile } = await supabase
-    .from("users_profiles")
-    .select("role, firebase_id, name")
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("id, username, firebase_id, role")
     .eq("id", user.id)
     .single();
 
-  if (!profile || profile.role !== "admin") return null;
-  return { ...user, firebase_id: profile.firebase_id, adminName: profile.name };
+  if (!userRow || (userRow as { role: string }).role !== "admin") return null;
+
+  const { data: profile } = await supabase
+    .from("user_profiles")
+    .select("first_name, last_name")
+    .eq("id", user.id)
+    .single();
+
+  const adminName = profile
+    ? `${(profile as { first_name: string }).first_name}${(profile as { last_name: string | null }).last_name ? ` ${(profile as { last_name: string | null }).last_name}` : ""}`
+    : "Admin";
+
+  return {
+    ...user,
+    firebase_id: (userRow as { firebase_id: string | null }).firebase_id,
+    adminName,
+  };
 }
 
 type TableName =
-  | "users_profiles"
+  | "users"
+  | "user_profiles"
   | "matches"
   | "predictions"
   | "teams"
   | "players"
   | "tournaments"
   | "tournament_seasons"
-  | "payments"
-  | "deposits"
-  | "current_round"
-  | "prize_pool"
-  | "user_tournament_points"
-  | "notifications";
+  | "transactions"
+  | "prize_pools"
+  | "notifications"
+  | "countries"
+  | "venues"
+  | "leagues"
+  | "league_members"
+  | "achievements"
+  | "user_achievements"
+  | "points_history"
+  | "audit_logs";
 
 const ALLOWED_TABLES: TableName[] = [
-  "users_profiles",
+  "users",
+  "user_profiles",
   "matches",
   "predictions",
   "teams",
   "players",
   "tournaments",
   "tournament_seasons",
-  "payments",
-  "deposits",
-  "current_round",
-  "prize_pool",
-  "user_tournament_points",
+  "transactions",
+  "prize_pools",
   "notifications",
+  "countries",
+  "venues",
+  "leagues",
+  "league_members",
+  "achievements",
+  "user_achievements",
+  "points_history",
+  "audit_logs",
 ];
 
 export async function POST(request: NextRequest) {
@@ -63,8 +90,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Tabela não permitida" }, { status: 400 });
     }
 
+    // Use service client for write operations to bypass RLS (if available)
+    const isReadOperation = action === "list" || action === "get";
+    const useServiceClient = !isReadOperation && process.env.SUPABASE_SERVICE_ROLE_KEY;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any;
+    const db = (useServiceClient ? createServiceClient() : supabase) as any;
 
     switch (action) {
       case "list": {
@@ -181,18 +211,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ data: upserted });
       }
 
-      case "approve_payment": {
-        const { id: paymentId } = body;
+      case "approve_transaction": {
+        const { id: txId } = body;
         const { data: updated, error } = await db
-          .from("payments")
+          .from("transactions")
           .update({
             status: "approved",
-            admin_id: admin.firebase_id,
-            admin_name: admin.adminName,
             processed_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .eq("id", paymentId)
+          .eq("id", txId)
           .select()
           .single();
 
@@ -203,58 +231,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ data: updated });
       }
 
-      case "reject_payment": {
-        const { id: paymentId, rejection_reason } = body;
+      case "reject_transaction": {
+        const { id: txId, rejection_reason } = body;
         const { data: updated, error } = await db
-          .from("payments")
+          .from("transactions")
           .update({
             status: "rejected",
-            admin_id: admin.firebase_id,
-            admin_name: admin.adminName,
             rejection_reason,
             processed_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .eq("id", paymentId)
-          .select()
-          .single();
-
-        if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
-        }
-
-        return NextResponse.json({ data: updated });
-      }
-
-      case "approve_deposit": {
-        const { id: depositId } = body;
-        const { data: updated, error } = await db
-          .from("deposits")
-          .update({
-            status: "confirmed",
-            confirmed_at: new Date().toISOString(),
-          })
-          .eq("id", depositId)
-          .select()
-          .single();
-
-        if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
-        }
-
-        return NextResponse.json({ data: updated });
-      }
-
-      case "reject_deposit": {
-        const { id: depositId, notes } = body;
-        const { data: updated, error } = await db
-          .from("deposits")
-          .update({
-            status: "cancelled",
-            cancelled_at: new Date().toISOString(),
-            notes,
-          })
-          .eq("id", depositId)
+          .eq("id", txId)
           .select()
           .single();
 

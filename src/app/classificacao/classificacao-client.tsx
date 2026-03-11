@@ -20,22 +20,25 @@ interface ClassificacaoUser {
   name: string;
   points: number;
   level: number;
+  xp: number;
   role: "user" | "admin";
 }
 
 interface TournamentOption {
-  id: number;
+  id: string;
   name: string;
   fullName: string;
   logo: string;
-  seasonId: number | null;
+  seasonId: string | null;
+  sofascoreTournamentId: number | null;
+  sofascoreSeasonId: number | null;
   format: string;
   hasRounds: boolean;
   hasGroups: boolean;
 }
 
 interface StandingTeam {
-  id: number;
+  id: string;
   name: string;
   shortName: string;
   logo: string;
@@ -170,19 +173,19 @@ export function ClassificacaoClient({
   tournaments,
 }: ClassificacaoClientProps) {
   const router = useRouter();
-  const [selectedTournament, setSelectedTournament] = useState(tournaments[0]?.id || 0);
+  const [selectedTournament, setSelectedTournament] = useState(tournaments[0]?.id || "");
   const [standings, setStandings] = useState<Standing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const currentTournament = tournaments.find((t) => t.id === selectedTournament);
 
-  const fetchStandings = useCallback(async (tournamentId: number) => {
+  const fetchStandings = useCallback(async (tournamentId: string) => {
     setLoading(true);
     setError(null);
 
     const tournament = tournaments.find((t) => t.id === tournamentId);
-    if (!tournament || !tournament.seasonId) {
+    if (!tournament || !tournament.sofascoreTournamentId) {
       setStandings([]);
       setLoading(false);
       setError("Torneio sem dados de temporada");
@@ -190,8 +193,11 @@ export function ClassificacaoClient({
     }
 
     try {
+      const params = new URLSearchParams({ tournamentId: String(tournament.sofascoreTournamentId) });
+      if (tournament.sofascoreSeasonId) params.set("seasonId", String(tournament.sofascoreSeasonId));
+
       const res = await fetch(
-        `/api/sofascore/standings?tournamentId=${tournamentId}&seasonId=${tournament.seasonId}`
+        `/api/sofascore/standings?${params.toString()}`
       );
 
       if (!res.ok) {
@@ -220,7 +226,7 @@ export function ClassificacaoClient({
     router.refresh();
   };
 
-  const handleTournamentChange = (tournamentId: number) => {
+  const handleTournamentChange = (tournamentId: string) => {
     setSelectedTournament(tournamentId);
   };
 
@@ -236,6 +242,7 @@ export function ClassificacaoClient({
             name: user.name,
             points: user.points,
             level: user.level,
+            xp: user.xp,
             role: user.role,
           }}
           onLogout={handleLogout}

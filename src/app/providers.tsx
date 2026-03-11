@@ -1,7 +1,9 @@
 "use client";
 
+import { Suspense, ReactNode, useSyncExternalStore } from "react";
 import { ThemeProvider } from "next-themes";
-import { ReactNode, useSyncExternalStore } from "react";
+import { NavigationLoadingProvider } from "@/components/ui/navigation-loading-provider";
+import { PageLoading } from "@/components/ui/page-loading";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -15,7 +17,7 @@ export function Providers({ children }: ProvidersProps) {
   const mounted = useSyncExternalStore(emptySubscribe, getSnapshot, getServerSnapshot);
 
   if (!mounted) {
-    return <>{children}</>;
+    return <PageLoading />;
   }
 
   return (
@@ -25,7 +27,11 @@ export function Providers({ children }: ProvidersProps) {
       enableSystem
       disableTransitionOnChange={false}
     >
-      {children}
+      <Suspense fallback={<PageLoading />}>
+        <NavigationLoadingProvider>
+          {children}
+        </NavigationLoadingProvider>
+      </Suspense>
     </ThemeProvider>
   );
 }

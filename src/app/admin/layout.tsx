@@ -18,22 +18,32 @@ export default async function AdminLayout({
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("users_profiles")
-    .select("*")
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("id, username, firebase_id, role")
     .eq("id", user.id)
     .single();
 
-  if (!profile || profile.role !== "admin") {
+  if (!userRow || (userRow as { role: string }).role !== "admin") {
     redirect("/dashboard");
   }
+
+  const { data: profile } = await supabase
+    .from("user_profiles")
+    .select("first_name, last_name")
+    .eq("id", user.id)
+    .single();
+
+  const adminName = profile
+    ? `${(profile as { first_name: string }).first_name}${(profile as { last_name: string | null }).last_name ? ` ${(profile as { last_name: string | null }).last_name}` : ""}`
+    : "Admin";
 
   return (
     <AdminShell
       user={{
-        id: profile.firebase_id,
-        name: profile.name,
-        role: profile.role as "admin",
+        id: (userRow as { firebase_id: string | null }).firebase_id || user.id,
+        name: adminName,
+        role: "admin",
       }}
     >
       {children}

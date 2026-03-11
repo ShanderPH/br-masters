@@ -5,15 +5,16 @@ import Image from "next/image";
 import { Calendar, Clock } from "lucide-react";
 import { Button } from "@heroui/react";
 
-import type { Match } from "@/lib/supabase/types";
+import { getTeamLogoPath } from "@/lib/services/team-logo-service";
+import type { EnrichedMatch } from "@/lib/supabase/types";
 
 interface MatchCardProps {
-  match: Match;
+  match: EnrichedMatch;
   userPrediction?: {
     homeScore: number;
     awayScore: number;
   } | null;
-  onPredict?: (match: Match) => void;
+  onPredict?: (match: EnrichedMatch) => void;
   showPredictButton?: boolean;
 }
 
@@ -44,8 +45,7 @@ export function MatchCard({
 
   const getTeamLogo = (teamName: string, teamLogo: string | null) => {
     if (teamLogo) return teamLogo;
-    const normalizedName = teamName.toLowerCase().replace(/\s+/g, "");
-    return `/images/logo/${normalizedName}.svg`;
+    return getTeamLogoPath(teamName);
   };
 
   return (
@@ -78,6 +78,7 @@ export function MatchCard({
               src={getTeamLogo(match.home_team_name, match.home_team_logo)}
               alt={match.home_team_name}
               fill
+              unoptimized
               className="object-contain"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = "/images/logo/waiting.svg";
@@ -122,6 +123,7 @@ export function MatchCard({
               src={getTeamLogo(match.away_team_name, match.away_team_logo)}
               alt={match.away_team_name}
               fill
+              unoptimized
               className="object-contain"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = "/images/logo/waiting.svg";

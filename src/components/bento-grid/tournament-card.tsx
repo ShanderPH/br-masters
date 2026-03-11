@@ -27,42 +27,6 @@ interface StandingTeam {
   goalDifference: number;
 }
 
-const StatusBadge = ({ status }: { status: string }) => {
-  const config: Record<string, { label: string; className: string; pulse: boolean }> = {
-    upcoming: {
-      label: "A Iniciar",
-      className: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-      pulse: false,
-    },
-    active: {
-      label: "Em Andamento",
-      className: "bg-green-500/20 text-green-400 border-green-500/30",
-      pulse: true,
-    },
-    finished: {
-      label: "Finalizado",
-      className: "bg-gray-500/20 text-gray-400 border-gray-500/30",
-      pulse: false,
-    },
-  };
-
-  const { label, className, pulse } = config[status] || config.upcoming;
-
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase rounded-sm border ${className}`}
-    >
-      {pulse && (
-        <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-        </span>
-      )}
-      {label}
-    </span>
-  );
-};
-
 const StandingsTable = ({ standings, maxTeams = 6 }: { standings: StandingTeam[]; maxTeams?: number }) => {
   if (!standings || standings.length === 0) return null;
 
@@ -113,6 +77,7 @@ const StandingsTable = ({ standings, maxTeams = 6 }: { standings: StandingTeam[]
                   src={standing.team.logo || getTeamLogoPath(standing.team.name)}
                   alt={standing.team.name}
                   fill
+                  unoptimized
                   className="object-contain"
                 />
               </div>
@@ -156,11 +121,20 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
       if (!currentTournament) return;
       setLoadingStandings(true);
       try {
-        const tournamentId = currentTournament.id;
-        const seasonId = currentTournament.season_id || currentSeason?.id || 87678;
+        const sofascoreTournamentId = currentTournament.sofascore_id;
+        const sofascoreSeasonId = currentSeason?.sofascore_season_id;
+
+        if (!sofascoreTournamentId) {
+          setStandings([]);
+          setLoadingStandings(false);
+          return;
+        }
+
+        const params = new URLSearchParams({ tournamentId: String(sofascoreTournamentId) });
+        if (sofascoreSeasonId) params.set("seasonId", String(sofascoreSeasonId));
 
         const response = await fetch(
-          `/api/sofascore/standings?tournamentId=${tournamentId}&seasonId=${seasonId}`
+          `/api/sofascore/standings?${params.toString()}`
         );
         if (response.ok) {
           const data = await response.json();
@@ -208,8 +182,13 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
     <FeatureTile
       colorTheme="pink"
       delay={delay}
-      bgImage={currentTournament.wallpaper_url}
-      onClick={() => router.push("/partidas")}
+      bgImage={undefined}
+      onClick={() => {
+        const params = new URLSearchParams();
+        if (currentTournament?.id) params.set("torneio", currentTournament.id);
+        if (currentRound > 0) params.set("rodada", String(currentRound));
+        router.push(`/partidas?${params.toString()}`);
+      }}
     >
       <div className="flex flex-col h-full">
         <div className="flex items-start justify-between mb-2 shrink-0">
@@ -232,11 +211,10 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
                   exit={{ opacity: 0, y: -10 }}
                   className="font-display font-black text-base sm:text-lg md:text-xl uppercase italic leading-tight text-brm-text-primary dark:text-white drop-shadow-lg truncate"
                 >
-                  {currentTournament.short_name || currentTournament.name}
+                  {currentTournament.name}
                 </motion.h2>
               </AnimatePresence>
               <div className="flex items-center gap-2 mt-0.5">
-                <StatusBadge status={currentTournament.status} />
                 {currentRound > 0 && (
                   <span className="text-[10px] text-brm-text-muted font-display flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
@@ -270,40 +248,6 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
           )}
         </div>
 
-        {currentTournament.most_titles_team_name && currentTournament.most_titles_count ? (
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3, duration: 0.4 }}
-            className="flex items-center gap-2 mb-2 shrink-0"
-          >
-            <div className="relative flex items-center gap-2 bg-linear-to-r from-yellow-500/20 to-amber-500/10 border-l-2 border-yellow-500 px-2 py-1 -skew-x-6">
-              <div className="skew-x-6 flex items-center gap-2">
-                <div className="relative w-5 h-5 sm:w-6 sm:h-6 shrink-0">
-                  <Image
-                    src={getTeamLogoPath(currentTournament.most_titles_team_name)}
-                    alt={currentTournament.most_titles_team_name}
-                    fill
-                    className="object-contain drop-shadow-lg"
-                  />
-                </div>
-                <div className="flex flex-col">
-                  <span className="font-display text-[8px] text-yellow-400/80 font-bold uppercase tracking-wider">
-                    Maior Campeão
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <span className="font-display text-[10px] sm:text-xs text-brm-text-primary dark:text-white font-black uppercase italic">
-                      {currentTournament.most_titles_team_name}
-                    </span>
-                    <span className="font-display text-[10px] sm:text-xs text-yellow-400 font-bold">
-                      ({currentTournament.most_titles_count}x)
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        ) : null}
 
         {loadingStandings ? (
           <div className="flex items-center justify-center py-4 flex-1">
@@ -315,6 +259,13 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
 
         <motion.button
           whileTap={{ scale: 0.98 }}
+          onClick={(e) => {
+            e.stopPropagation();
+            const params = new URLSearchParams();
+            if (currentTournament?.id) params.set("torneio", currentTournament.id);
+            if (currentRound > 0) params.set("rodada", String(currentRound));
+            router.push(`/partidas?${params.toString()}`);
+          }}
           className="w-full mt-2 shrink-0 bg-brm-accent text-white font-display font-bold uppercase px-4 py-2 text-xs sm:text-sm -skew-x-12 transition-colors duration-300 hover:bg-brm-secondary hover:text-brm-background-dark shadow-lg hover:shadow-brm-secondary/30 flex items-center justify-center gap-2"
         >
           <span className="skew-x-12 flex items-center gap-2 font-display">

@@ -23,6 +23,9 @@ interface SofascoreEvent {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DB = any;
+
 async function sofascoreFetch(path: string) {
   const url = `https://${RAPIDAPI_HOST}${path}`;
   const response = await fetch(url, {
@@ -40,18 +43,21 @@ async function sofascoreFetch(path: string) {
     throw new Error(`SofaScore API error: ${response.status} ${response.statusText}`);
   }
 
-  return response.json();
+  const text = await response.text();
+  if (!text || text.trim().length === 0) {
+    return { events: [], seasons: [], standings: [], rounds: [] };
+  }
+  return JSON.parse(text);
 }
 
-async function fetchAllEvents(tournamentId: number, seasonId: number): Promise<SofascoreEvent[]> {
+async function fetchAllEvents(sofascoreTournamentId: number, sofascoreSeasonId: number): Promise<SofascoreEvent[]> {
   const eventMap = new Map<number, SofascoreEvent>();
 
-  // 1) Fetch PAST matches via get-last-matches
   let pageIndex = 0;
   let hasNext = true;
   while (hasNext && pageIndex < 20) {
     const data = await sofascoreFetch(
-      `/tournaments/get-last-matches?tournamentId=${tournamentId}&seasonId=${seasonId}&pageIndex=${pageIndex}`
+      `/tournaments/get-last-matches?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}&pageIndex=${pageIndex}`
     );
     const events: SofascoreEvent[] = data.events || [];
     for (const e of events) eventMap.set(e.id, e);
@@ -59,12 +65,11 @@ async function fetchAllEvents(tournamentId: number, seasonId: number): Promise<S
     pageIndex++;
   }
 
-  // 2) Fetch UPCOMING matches via get-next-matches
   pageIndex = 0;
   hasNext = true;
   while (hasNext && pageIndex < 20) {
     const data = await sofascoreFetch(
-      `/tournaments/get-next-matches?tournamentId=${tournamentId}&seasonId=${seasonId}&pageIndex=${pageIndex}`
+      `/tournaments/get-next-matches?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}&pageIndex=${pageIndex}`
     );
     const events: SofascoreEvent[] = data.events || [];
     for (const e of events) eventMap.set(e.id, e);
@@ -75,68 +80,53 @@ async function fetchAllEvents(tournamentId: number, seasonId: number): Promise<S
   return Array.from(eventMap.values());
 }
 
-function mapEventToMatch(e: SofascoreEvent, tournamentId: number, seasonId: number) {
-  const isKnockout = !!e.roundInfo?.cupRoundType || !!e.roundInfo?.name;
-  const groupName = e.tournament?.groupName || null;
-
-  return {
-    id: e.id,
-    round_number: e.roundInfo?.round || 0,
-    round_name: e.roundInfo?.name || null,
-    round_type: isKnockout ? "cup" : "league",
-    cup_round_type: e.roundInfo?.cupRoundType || null,
-    group_name: groupName,
-    home_team_id: e.homeTeam.id,
-    home_team_name: e.homeTeam.name,
-    home_team_short_name: e.homeTeam.shortName || e.homeTeam.nameCode || null,
-    home_team_logo: `/api/team-logo/${e.homeTeam.id}`,
-    away_team_id: e.awayTeam.id,
-    away_team_name: e.awayTeam.name,
-    away_team_short_name: e.awayTeam.shortName || e.awayTeam.nameCode || null,
-    away_team_logo: `/api/team-logo/${e.awayTeam.id}`,
-    slug: e.slug,
-    start_time: new Date(e.startTimestamp * 1000).toISOString(),
-    start_timestamp: e.startTimestamp,
-    status: e.status.type || "notstarted",
-    status_code: e.status.code,
-    status_description: e.status.description || null,
-    home_score: e.homeScore?.display ?? e.homeScore?.current ?? 0,
-    away_score: e.awayScore?.display ?? e.awayScore?.current ?? 0,
-    tournament_id: tournamentId,
-    tournament_name: e.tournament?.uniqueTournament?.name || e.tournament?.name || "",
-    tournament_slug: e.tournament?.uniqueTournament?.slug || e.tournament?.slug || null,
-    season_id: seasonId,
-    source: "sofascore",
-    last_updated: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-}
-
-function determineTournamentFormat(rounds: { round: number; name?: string; slug?: string }[]): string {
-  const hasNamedRounds = rounds.some((r) => r.name);
-  const hasPlainRounds = rounds.some((r) => !r.name);
-
-  if (hasNamedRounds && hasPlainRounds) return "mixed";
-  if (hasNamedRounds) return "knockout";
-  return "league";
-}
-
 async function verifyAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
   const { data: profile } = await supabase
-    .from("users_profiles")
+    .from("users")
     .select("role")
     .eq("id", user.id)
     .single();
 
-  if (!profile || profile.role !== "admin") return null;
+  const userRole = (profile as { role: string } | null)?.role;
+  if (!userRole || userRole !== "admin") return null;
   return user;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DB = any;
+async function getBrazilCountryId(db: DB): Promise<string> {
+  const { data: country } = await db
+    .from("countries")
+    .select("id")
+    .eq("code", "BR")
+    .single();
+
+  if (country) return (country as { id: string }).id;
+
+  const { data: created, error } = await db
+    .from("countries")
+    .insert({ name: "Brazil", code: "BR" })
+    .select("id")
+    .single();
+
+  if (error || !created) {
+    throw new Error(`Failed to create Brazil country record: ${error?.message || "Insert returned null (check RLS policies)"}`);
+  }
+
+  return (created as { id: string }).id;
+}
+
+function mapSofascoreStatus(statusType: string | undefined): string {
+  switch (statusType) {
+    case "finished": return "finished";
+    case "inprogress": return "live";
+    case "notstarted": return "scheduled";
+    case "postponed": return "postponed";
+    case "canceled": return "canceled";
+    default: return "scheduled";
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -169,91 +159,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ tournaments });
       }
 
-      case "setup_tournament": {
-        const { tournamentId, seasonId, format: userFormat } = body;
-
-        const seasonsData = await sofascoreFetch(
-          `/tournaments/get-seasons?tournamentId=${tournamentId}`
-        );
-        const seasons: { id: number; name: string; year: string }[] = seasonsData.seasons || [];
-
-        if (seasons.length === 0) {
-          return NextResponse.json({ error: "Torneio não encontrado no SofaScore" }, { status: 404 });
-        }
-
-        const targetSeason = seasons.find((s) => s.id === seasonId);
-        if (!targetSeason) {
-          return NextResponse.json({
-            error: `Season ID ${seasonId} não encontrado. Seasons disponíveis: ${seasons.slice(0, 5).map(s => `${s.name} (${s.id})`).join(", ")}`,
-          }, { status: 404 });
-        }
-
-        const roundsData = await sofascoreFetch(
-          `/tournaments/get-rounds?tournamentId=${tournamentId}&seasonId=${seasonId}`
-        );
-        const rounds: { round: number; name?: string; slug?: string }[] = roundsData.rounds || [];
-        const currentRound = roundsData.currentRound || null;
-
-        const detectedFormat = determineTournamentFormat(rounds);
-        const finalFormat = userFormat || detectedFormat;
-
-        const hasRounds = finalFormat === "league" || finalFormat === "mixed";
-        const hasGroups = finalFormat === "mixed";
-
-        const tournamentName = targetSeason.name;
-
-        const tournamentData = {
-          id: tournamentId,
-          name: tournamentName,
-          slug: tournamentName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
-          format: finalFormat,
-          has_rounds: hasRounds,
-          has_groups: hasGroups,
-          has_playoff_series: false,
-          status: "active",
-          season_id: seasonId,
-          current_phase: currentRound?.name || (currentRound?.round ? `Rodada ${currentRound.round}` : null),
-          updated_at: new Date().toISOString(),
-          last_sync_at: new Date().toISOString(),
-        };
-
-        const { data: upserted, error: tError } = await db
-          .from("tournaments")
-          .upsert(tournamentData, { onConflict: "id" })
-          .select()
-          .single();
-
-        if (tError) {
-          return NextResponse.json({ error: tError.message }, { status: 500 });
-        }
-
-        const seasonRecords = seasons.slice(0, 10).map((s) => ({
-          id: s.id,
-          tournament_id: tournamentId,
-          name: s.name,
-          year: s.year || null,
-          is_current: s.id === seasonId,
-          updated_at: new Date().toISOString(),
-        }));
-
-        await db
-          .from("tournament_seasons")
-          .upsert(seasonRecords, { onConflict: "id" });
-
-        return NextResponse.json({
-          tournament: upserted,
-          seasons: seasonRecords,
-          rounds,
-          currentRound,
-          detectedFormat,
-        });
-      }
-
       case "get_rounds": {
-        const { tournamentId, seasonId } = body;
+        const { sofascoreTournamentId, sofascoreSeasonId } = body;
 
         const data = await sofascoreFetch(
-          `/tournaments/get-rounds?tournamentId=${tournamentId}&seasonId=${seasonId}`
+          `/tournaments/get-rounds?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}`
         );
 
         return NextResponse.json({
@@ -263,120 +173,250 @@ export async function POST(request: NextRequest) {
       }
 
       case "get_seasons": {
-        const { tournamentId } = body;
+        const { sofascoreTournamentId } = body;
 
         const data = await sofascoreFetch(
-          `/tournaments/get-seasons?tournamentId=${tournamentId}`
+          `/tournaments/get-seasons?tournamentId=${sofascoreTournamentId}`
         );
 
         return NextResponse.json({ seasons: data.seasons || [] });
       }
 
       case "import_matches": {
-        const { tournamentId, seasonId } = body;
+        const { tournamentId, seasonId, sofascoreTournamentId, sofascoreSeasonId } = body;
 
-        const events = await fetchAllEvents(tournamentId, seasonId);
+        if (!tournamentId || !seasonId) {
+          return NextResponse.json({ error: "tournamentId e seasonId (UUIDs) são obrigatórios" }, { status: 400 });
+        }
+
+        if (!sofascoreTournamentId || !sofascoreSeasonId) {
+          return NextResponse.json({ error: "sofascoreTournamentId e sofascoreSeasonId são obrigatórios" }, { status: 400 });
+        }
+
+        const countryId = await getBrazilCountryId(db);
+        const events = await fetchAllEvents(sofascoreTournamentId, sofascoreSeasonId);
 
         if (events.length === 0) {
-          return NextResponse.json({ matches: [], count: 0 });
+          return NextResponse.json({ matches: [], count: 0, message: "Nenhuma partida encontrada na API" });
         }
 
-        const matchesData = events.map((e) => mapEventToMatch(e, tournamentId, seasonId));
+        const uniqueTeams = new Map<number, { name: string; code: string | null }>();
+        for (const e of events) {
+          if (!uniqueTeams.has(e.homeTeam.id)) {
+            uniqueTeams.set(e.homeTeam.id, {
+              name: e.homeTeam.name,
+              code: e.homeTeam.nameCode || e.homeTeam.shortName || null,
+            });
+          }
+          if (!uniqueTeams.has(e.awayTeam.id)) {
+            uniqueTeams.set(e.awayTeam.id, {
+              name: e.awayTeam.name,
+              code: e.awayTeam.nameCode || e.awayTeam.shortName || null,
+            });
+          }
+        }
 
-        const batchSize = 100;
-        let totalInserted = 0;
+        const teamsToUpsert = Array.from(uniqueTeams.entries()).map(([sofascoreId, t]) => ({
+          name: t.name,
+          slug: t.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
+          name_code: t.code || t.name.substring(0, 3).toUpperCase(),
+          country_id: countryId,
+          logo_url: `/api/team-logo/${sofascoreId}`,
+          sofascore_id: sofascoreId,
+          updated_at: new Date().toISOString(),
+        }));
 
-        for (let i = 0; i < matchesData.length; i += batchSize) {
-          const batch = matchesData.slice(i, i + batchSize);
+        const teamBatchSize = 50;
+        for (let i = 0; i < teamsToUpsert.length; i += teamBatchSize) {
+          const batch = teamsToUpsert.slice(i, i + teamBatchSize);
+          await db.from("teams").upsert(batch, { onConflict: "sofascore_id", ignoreDuplicates: false });
+        }
+
+        const { data: allTeams } = await db
+          .from("teams")
+          .select("id, sofascore_id")
+          .in("sofascore_id", Array.from(uniqueTeams.keys()));
+
+        const teamMap = new Map<number, string>();
+        for (const t of (allTeams || []) as { id: string; sofascore_id: number }[]) {
+          teamMap.set(t.sofascore_id, t.id);
+        }
+
+        const now = new Date().toISOString();
+        const matchesData = events.map((e) => ({
+          tournament_id: tournamentId,
+          season_id: seasonId,
+          home_team_id: teamMap.get(e.homeTeam.id) || null,
+          away_team_id: teamMap.get(e.awayTeam.id) || null,
+          slug: e.slug,
+          round_number: e.roundInfo?.round || null,
+          round_name: e.roundInfo?.name || null,
+          start_time: new Date(e.startTimestamp * 1000).toISOString(),
+          status: mapSofascoreStatus(e.status.type),
+          home_score: e.homeScore?.display ?? e.homeScore?.current ?? null,
+          away_score: e.awayScore?.display ?? e.awayScore?.current ?? null,
+          sofascore_id: e.id,
+          updated_at: now,
+        })).filter((m) => m.home_team_id && m.away_team_id);
+
+        let totalUpserted = 0;
+        let errorCount = 0;
+        const errors: string[] = [];
+        const matchBatchSize = 50;
+
+        for (let i = 0; i < matchesData.length; i += matchBatchSize) {
+          const batch = matchesData.slice(i, i + matchBatchSize);
           const { error } = await db
             .from("matches")
-            .upsert(batch, { onConflict: "id" });
+            .upsert(batch, { onConflict: "sofascore_id", ignoreDuplicates: false });
 
           if (error) {
-            return NextResponse.json({
-              error: error.message,
-              partialCount: totalInserted,
-            }, { status: 500 });
+            errors.push(`Batch ${Math.floor(i / matchBatchSize)}: ${error.message}`);
+            errorCount += batch.length;
+          } else {
+            totalUpserted += batch.length;
           }
-          totalInserted += batch.length;
         }
 
-        const groupNames = [...new Set(matchesData.map((m) => m.group_name).filter(Boolean))];
-        const roundNames = [...new Set(matchesData.map((m) => m.round_name).filter(Boolean))];
-        const roundNumbers = [...new Set(matchesData.map((m) => m.round_number))].sort((a, b) => a - b);
-        const pastCount = matchesData.filter((m) => m.status === "finished").length;
-        const futureCount = matchesData.filter((m) => m.status === "notstarted").length;
+        const roundNumbers = [...new Set(events.map((e) => e.roundInfo?.round).filter(Boolean))].sort((a, b) => (a || 0) - (b || 0));
+        const pastCount = events.filter((e) => e.status.type === "finished").length;
+        const futureCount = events.filter((e) => e.status.type === "notstarted").length;
 
         return NextResponse.json({
-          count: matchesData.length,
+          total: events.length,
+          upserted: totalUpserted,
+          teamsProcessed: uniqueTeams.size,
+          errors: errorCount,
+          errorMessages: errors.slice(0, 10),
+          roundNumbers,
           pastCount,
           futureCount,
-          groups: groupNames,
-          roundNames,
-          roundNumbers,
         });
       }
 
       case "import_round_matches": {
-        const { tournamentId, seasonId, round } = body;
+        const { tournamentId, seasonId, sofascoreTournamentId, sofascoreSeasonId, round } = body;
+        
         if (!round) {
           return NextResponse.json({ error: "Rodada não informada" }, { status: 400 });
         }
 
-        const events = await fetchAllEvents(tournamentId, seasonId);
+        if (!tournamentId || !seasonId) {
+          return NextResponse.json({ error: "tournamentId e seasonId (UUIDs) são obrigatórios" }, { status: 400 });
+        }
+
+        const countryIdRound = await getBrazilCountryId(db);
+        const events = await fetchAllEvents(sofascoreTournamentId, sofascoreSeasonId);
         const roundEvents = events.filter((e) => e.roundInfo?.round === Number(round));
 
         if (roundEvents.length === 0) {
           return NextResponse.json({ error: `Nenhuma partida encontrada para rodada ${round}`, count: 0 }, { status: 404 });
         }
 
-        const matchesData = roundEvents.map((e) => mapEventToMatch(e, tournamentId, seasonId));
+        const uniqueTeamsRound = new Map<number, { name: string; code: string | null }>();
+        for (const e of roundEvents) {
+          if (!uniqueTeamsRound.has(e.homeTeam.id)) {
+            uniqueTeamsRound.set(e.homeTeam.id, { name: e.homeTeam.name, code: e.homeTeam.nameCode || e.homeTeam.shortName || null });
+          }
+          if (!uniqueTeamsRound.has(e.awayTeam.id)) {
+            uniqueTeamsRound.set(e.awayTeam.id, { name: e.awayTeam.name, code: e.awayTeam.nameCode || e.awayTeam.shortName || null });
+          }
+        }
 
-        const { error } = await db
+        const roundTeamsToUpsert = Array.from(uniqueTeamsRound.entries()).map(([sid, t]) => ({
+          name: t.name,
+          slug: t.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
+          name_code: t.code || t.name.substring(0, 3).toUpperCase(),
+          country_id: countryIdRound,
+          logo_url: `/api/team-logo/${sid}`,
+          sofascore_id: sid,
+          updated_at: new Date().toISOString(),
+        }));
+
+        await db.from("teams").upsert(roundTeamsToUpsert, { onConflict: "sofascore_id", ignoreDuplicates: false });
+
+        const { data: roundTeamsData } = await db
+          .from("teams")
+          .select("id, sofascore_id")
+          .in("sofascore_id", Array.from(uniqueTeamsRound.keys()));
+
+        const roundTeamMap = new Map<number, string>();
+        for (const t of (roundTeamsData || []) as { id: string; sofascore_id: number }[]) {
+          roundTeamMap.set(t.sofascore_id, t.id);
+        }
+
+        const nowRound = new Date().toISOString();
+        const roundMatchesData = roundEvents.map((e) => ({
+          tournament_id: tournamentId,
+          season_id: seasonId,
+          home_team_id: roundTeamMap.get(e.homeTeam.id) || null,
+          away_team_id: roundTeamMap.get(e.awayTeam.id) || null,
+          slug: e.slug,
+          round_number: e.roundInfo?.round || null,
+          round_name: e.roundInfo?.name || null,
+          start_time: new Date(e.startTimestamp * 1000).toISOString(),
+          status: mapSofascoreStatus(e.status.type),
+          home_score: e.homeScore?.display ?? e.homeScore?.current ?? null,
+          away_score: e.awayScore?.display ?? e.awayScore?.current ?? null,
+          sofascore_id: e.id,
+          updated_at: nowRound,
+        })).filter((m) => m.home_team_id && m.away_team_id);
+
+        const { error: roundUpsertError } = await db
           .from("matches")
-          .upsert(matchesData, { onConflict: "id" });
+          .upsert(roundMatchesData, { onConflict: "sofascore_id", ignoreDuplicates: false });
 
-        if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
+        if (roundUpsertError) {
+          return NextResponse.json({ error: roundUpsertError.message }, { status: 500 });
         }
 
         return NextResponse.json({
-          count: matchesData.length,
+          count: roundMatchesData.length,
           round: Number(round),
-          statuses: [...new Set(matchesData.map((m) => m.status))],
         });
       }
 
       case "update_match_scores": {
-        const { tournamentId, seasonId } = body;
+        const { sofascoreTournamentId, sofascoreSeasonId } = body;
 
-        const events = await fetchAllEvents(tournamentId, seasonId);
+        const events = await fetchAllEvents(sofascoreTournamentId, sofascoreSeasonId);
         const finishedEvents = events.filter((e) => e.status.type === "finished");
 
         let updatedCount = 0;
+        let notFoundCount = 0;
 
         for (const e of finishedEvents) {
-          const { error } = await db
+          const { error, count } = await db
             .from("matches")
             .update({
               status: "finished",
-              status_code: e.status.code,
-              status_description: e.status.description || "Ended",
               home_score: e.homeScore?.display ?? e.homeScore?.current ?? 0,
               away_score: e.awayScore?.display ?? e.awayScore?.current ?? 0,
-              last_updated: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
-            .eq("id", e.id);
+            .eq("sofascore_id", e.id)
+            .select("id");
 
-          if (!error) updatedCount++;
+          if (!error && count && count > 0) {
+            updatedCount++;
+          } else {
+            notFoundCount++;
+          }
         }
 
-        return NextResponse.json({ updated: updatedCount, total: finishedEvents.length });
+        return NextResponse.json({ 
+          updated: updatedCount, 
+          notFound: notFoundCount,
+          total: finishedEvents.length 
+        });
       }
 
       case "calculate_scores": {
         const { tournamentId, seasonId, round } = body;
+
+        if (!tournamentId) {
+          return NextResponse.json({ error: "tournamentId (UUID) é obrigatório" }, { status: 400 });
+        }
 
         let matchQuery = db
           .from("matches")
@@ -393,8 +433,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Nenhuma partida finalizada encontrada", scored: 0 });
         }
 
-        const matchIds = finishedMatches.map((m: { id: number }) => m.id);
-        const matchMap = new Map(finishedMatches.map((m: { id: number; home_score: number; away_score: number; round_number: number }) => [m.id, m]));
+        const matchIds = finishedMatches.map((m: { id: string }) => m.id);
+        const matchMap = new Map(finishedMatches.map((m: { id: string; home_score: number; away_score: number; round_number: number }) => [m.id, m]));
 
         const { data: preds, error: pErr } = await db
           .from("predictions")
@@ -407,6 +447,14 @@ export async function POST(request: NextRequest) {
         }
 
         let scored = 0;
+        const userPoints: Record<string, number> = {};
+
+        // Get scoring config from database
+        const { data: configData } = await db.rpc("get_scoring_config");
+        const scoringConfig = (configData as Record<string, number>) || {};
+        const exactPoints = scoringConfig.exact_score_points ?? 5;
+        const resultPoints = scoringConfig.correct_result_points ?? 2;
+
         for (const pred of preds) {
           const match = matchMap.get(pred.match_id) as { home_score: number; away_score: number } | undefined;
           if (!match) continue;
@@ -423,45 +471,45 @@ export async function POST(request: NextRequest) {
           const isCorrectResult = predResult === realResult;
 
           let points = 0;
-          if (isExact) points = 10;
-          else if (isCorrectResult) points = 5;
+          if (isExact) points = exactPoints;
+          else if (isCorrectResult) points = resultPoints;
 
           const { error: uErr } = await db
             .from("predictions")
             .update({
               points_earned: points,
-              is_correct: isCorrectResult,
+              is_correct_result: isCorrectResult,
               is_exact_score: isExact,
-              tournament_id: tournamentId,
-              season_id: seasonId || null,
             })
             .eq("id", pred.id);
 
-          if (!uErr) scored++;
+          if (!uErr) {
+            scored++;
+            userPoints[pred.user_id] = (userPoints[pred.user_id] || 0) + points;
+          }
         }
 
-        return NextResponse.json({ scored, totalPredictions: preds.length, matchesProcessed: finishedMatches.length });
-      }
+        for (const [userId, points] of Object.entries(userPoints)) {
+          if (points > 0) {
+            await db.rpc("increment_user_points", { user_id: userId, points_to_add: points });
+          }
+        }
 
-      case "sync_predictions_season": {
-        const { tournamentId, seasonId } = body;
-
-        const { data, error } = await db
-          .from("predictions")
-          .update({ season_id: seasonId })
-          .eq("tournament_id", tournamentId)
-          .is("season_id", null)
-          .select("id");
-
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-        return NextResponse.json({ updated: data?.length || 0 });
+        return NextResponse.json({ 
+          scored, 
+          totalPredictions: preds.length, 
+          matchesProcessed: finishedMatches.length,
+          usersUpdated: Object.keys(userPoints).length,
+        });
       }
 
       case "import_teams": {
-        const { tournamentId, seasonId } = body;
+        const { sofascoreTournamentId, sofascoreSeasonId } = body;
+
+        const countryId = await getBrazilCountryId(db);
 
         const data = await sofascoreFetch(
-          `/tournaments/get-standings?tournamentId=${tournamentId}&seasonId=${seasonId}&type=total`
+          `/tournaments/get-standings?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}&type=total`
         );
 
         const allStandings: { rows?: { team: Record<string, unknown> }[]; name?: string }[] = data.standings || [];
@@ -469,7 +517,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "Nenhum time encontrado" }, { status: 404 });
         }
 
-        const teamSet = new Map<number, Record<string, unknown>>();
+        let insertedCount = 0;
+        let updatedCount = 0;
 
         for (const standing of allStandings) {
           const rows = standing.rows || [];
@@ -480,52 +529,50 @@ export async function POST(request: NextRequest) {
               shortName?: string;
               nameCode?: string;
               slug?: string;
-              country?: { name?: string; alpha2?: string; alpha3?: string };
               teamColors?: { primary?: string; secondary?: string; text?: string };
             };
-            if (!teamSet.has(team.id)) {
-              teamSet.set(team.id, {
-                id: team.id,
-                name: team.name,
-                short_name: team.shortName || null,
-                name_code: team.nameCode || null,
-                slug: team.slug || null,
-                country_name: team.country?.name || "Brazil",
-                country_alpha2: team.country?.alpha2 || "BR",
-                country_alpha3: team.country?.alpha3 || "BRA",
-                primary_color: team.teamColors?.primary || null,
-                secondary_color: team.teamColors?.secondary || null,
-                text_color: team.teamColors?.text || null,
-                primary_tournament_id: tournamentId,
-                updated_at: new Date().toISOString(),
-                last_sync_at: new Date().toISOString(),
-              });
+
+            const { data: existing } = await db
+              .from("teams")
+              .select("id")
+              .eq("sofascore_id", team.id)
+              .single();
+
+            const teamData = {
+              name: team.name,
+              slug: team.slug || team.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
+              name_code: team.nameCode || team.shortName || team.name.substring(0, 3).toUpperCase(),
+              country_id: countryId,
+              logo_url: `/api/team-logo/${team.id}`,
+              primary_color: team.teamColors?.primary ? `#${team.teamColors.primary}` : null,
+              secondary_color: team.teamColors?.secondary ? `#${team.teamColors.secondary}` : null,
+              text_color: team.teamColors?.text ? `#${team.teamColors.text}` : null,
+              sofascore_id: team.id,
+              updated_at: new Date().toISOString(),
+            };
+
+            if (existing) {
+              await db.from("teams").update(teamData).eq("id", (existing as { id: string }).id);
+              updatedCount++;
+            } else {
+              await db.from("teams").insert(teamData);
+              insertedCount++;
             }
           }
         }
 
-        const teamsData = Array.from(teamSet.values());
-
-        if (teamsData.length === 0) {
-          return NextResponse.json({ error: "Nenhum time encontrado" }, { status: 404 });
-        }
-
-        const { error } = await db
-          .from("teams")
-          .upsert(teamsData, { onConflict: "id" });
-
-        if (error) {
-          return NextResponse.json({ error: error.message }, { status: 500 });
-        }
-
-        return NextResponse.json({ teams: teamsData, count: teamsData.length });
+        return NextResponse.json({ 
+          inserted: insertedCount, 
+          updated: updatedCount,
+          total: insertedCount + updatedCount 
+        });
       }
 
       case "get_standings": {
-        const { tournamentId, seasonId } = body;
+        const { sofascoreTournamentId, sofascoreSeasonId } = body;
 
         const data = await sofascoreFetch(
-          `/tournaments/get-standings?tournamentId=${tournamentId}&seasonId=${seasonId}&type=total`
+          `/tournaments/get-standings?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}&type=total`
         );
 
         return NextResponse.json({

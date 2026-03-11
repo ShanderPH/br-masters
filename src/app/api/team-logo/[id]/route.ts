@@ -7,7 +7,7 @@ const logoCache = new Map<string, { data: string; timestamp: number }>();
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
 const teamIdToFileName: Record<string, string> = {
-  // Brasileirão Serie A 2025 teams
+  // Brasileirão Serie A 2026 teams
   "1954": "cruzeiro",
   "1955": "bahia",
   "1977": "atletico-mg",
@@ -28,8 +28,10 @@ const teamIdToFileName: Record<string, string> = {
   "1980": "juventude",
   "1999": "bragantino",
   "1981": "saopaulo",
-  // Additional teams
-  "21845": "mirassol",
+  "1967": "athletico",
+  "1982": "coritiba",
+  "21845": "chapecoense",
+  "2012": "remo",
   // International teams
   "1644": "psg",
 };
