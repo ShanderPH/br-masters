@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { DashboardClient } from "./dashboard-client";
+import { ROUTES } from "@/lib/routes";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -11,7 +12,7 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    redirect(ROUTES.LOGIN);
   }
 
   const { data: userRow } = await supabase
@@ -21,7 +22,7 @@ export default async function DashboardPage() {
     .single();
 
   if (!userRow) {
-    redirect("/login");
+    redirect(ROUTES.LOGIN);
   }
 
   const { data: profile } = await supabase
@@ -31,7 +32,7 @@ export default async function DashboardPage() {
     .single();
 
   if (!profile) {
-    redirect("/login");
+    redirect(ROUTES.LOGIN);
   }
 
   type UserRowT = { id: string; firebase_id: string | null; role: string; favorite_team_id: string | null };
@@ -39,48 +40,32 @@ export default async function DashboardPage() {
   const ur = userRow as UserRowT;
   const pr = profile as ProfileT;
 
-  const { data: prizePool } = await supabase
-    .from("prize_pools")
-    .select("*")
-    .limit(1)
-    .single();
-
-  const { data: rankingProfiles } = await supabase
-    .from("user_profiles")
-    .select("id, first_name, last_name, total_points, is_public")
-    .eq("is_public", true)
-    .order("total_points", { ascending: false })
-    .limit(10);
+  const [
+    { data: prizePool },
+    { data: rankingProfiles },
+    { data: upcomingRows },
+    { count: totalPredictions },
+  ] = await Promise.all([
+    supabase.from("prize_pools").select("*").limit(1).single(),
+    supabase
+      .from("user_profiles")
+      .select("id, first_name, last_name, total_points, is_public")
+      .eq("is_public", true)
+      .order("total_points", { ascending: false })
+      .limit(10),
+    supabase
+      .from("upcoming_matches")
+      .select("*")
+      .order("start_time", { ascending: true })
+      .limit(5),
+    supabase
+      .from("predictions")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id),
+  ]);
 
   type RankProfileRow = { id: string; first_name: string; last_name: string | null; total_points: number };
   const rankProfiles = (rankingProfiles as RankProfileRow[] | null) || [];
-
-  const rankTeamsMap: Map<string, string | null> = new Map();
-  if (rankProfiles.length > 0) {
-    const rankUserIds = rankProfiles.map((p) => p.id);
-    const { data: rankUsersData } = await supabase
-      .from("users")
-      .select("id, favorite_team_id")
-      .in("id", rankUserIds);
-    type RankUserRow = { id: string; favorite_team_id: string | null };
-    const rankUsers = (rankUsersData as RankUserRow[] | null) || [];
-    const teamIds = [...new Set(rankUsers.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
-    if (teamIds.length > 0) {
-      const { data: teamsData } = await supabase.from("teams").select("id, logo_url").in("id", teamIds);
-      type TeamRow = { id: string; logo_url: string | null };
-      const teams = (teamsData as TeamRow[] | null) || [];
-      const teamsLookup = new Map(teams.map((t) => [t.id, t.logo_url]));
-      rankUsers.forEach((u) => {
-        rankTeamsMap.set(u.id, u.favorite_team_id ? teamsLookup.get(u.favorite_team_id) ?? null : null);
-      });
-    }
-  }
-
-  const { data: upcomingRows } = await supabase
-    .from("upcoming_matches")
-    .select("*")
-    .order("start_time", { ascending: true })
-    .limit(5);
 
   type UpcomingRow = {
     id: string; slug: string; start_time: string; status: string;
@@ -89,22 +74,41 @@ export default async function DashboardPage() {
   };
   const upcoming = (upcomingRows as UpcomingRow[] | null) || [];
 
-  const matchIds = upcoming.map((m) => m.id);
-  let predictedMatchIds = new Set<string>();
-  if (matchIds.length > 0) {
-    const { data: preds } = await supabase
-      .from("predictions")
-      .select("match_id")
-      .eq("user_id", user.id)
-      .in("match_id", matchIds);
-    type PredRow = { match_id: string };
-    predictedMatchIds = new Set((preds as PredRow[] | null)?.map((p) => p.match_id) || []);
-  }
-
-  const { count: totalPredictions } = await supabase
-    .from("predictions")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id);
+  const [rankTeamsMap, predictedMatchIds] = await Promise.all([
+    (async () => {
+      const result: Map<string, string | null> = new Map();
+      if (rankProfiles.length === 0) return result;
+      const rankUserIds = rankProfiles.map((p) => p.id);
+      const { data: rankUsersData } = await supabase
+        .from("users")
+        .select("id, favorite_team_id")
+        .in("id", rankUserIds);
+      type RankUserRow = { id: string; favorite_team_id: string | null };
+      const rankUsers = (rankUsersData as RankUserRow[] | null) || [];
+      const teamIds = [...new Set(rankUsers.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
+      if (teamIds.length > 0) {
+        const { data: teamsData } = await supabase.from("teams").select("id, logo_url").in("id", teamIds);
+        type TeamRow = { id: string; logo_url: string | null };
+        const teams = (teamsData as TeamRow[] | null) || [];
+        const teamsLookup = new Map(teams.map((t) => [t.id, t.logo_url]));
+        rankUsers.forEach((u) => {
+          result.set(u.id, u.favorite_team_id ? teamsLookup.get(u.favorite_team_id) ?? null : null);
+        });
+      }
+      return result;
+    })(),
+    (async () => {
+      const matchIds = upcoming.map((m) => m.id);
+      if (matchIds.length === 0) return new Set<string>();
+      const { data: preds } = await supabase
+        .from("predictions")
+        .select("match_id")
+        .eq("user_id", user.id)
+        .in("match_id", matchIds);
+      type PredRow = { match_id: string };
+      return new Set((preds as PredRow[] | null)?.map((p) => p.match_id) || []);
+    })(),
+  ]);
 
   const userName = `${pr.first_name}${pr.last_name ? ` ${pr.last_name}` : ""}`;
 

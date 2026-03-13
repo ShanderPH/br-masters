@@ -20,6 +20,7 @@ import {
   Clock,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 import { TextField, Label, Input, FieldError } from "@heroui/react";
 import { createClient } from "@/lib/supabase/client";
@@ -686,10 +687,13 @@ export function CheckoutClient({
                         className="bg-transparent text-white text-sm font-mono outline-none flex-1 placeholder:text-white/20"
                       />
                       {detectedPaymentMethod?.thumbnail && (
-                        <img
+                        <Image
                           src={detectedPaymentMethod.thumbnail}
                           alt={detectedPaymentMethod.name}
-                          className="h-6"
+                          width={32}
+                          height={24}
+                          unoptimized
+                          className="h-6 w-auto"
                         />
                       )}
                     </div>
@@ -997,9 +1001,12 @@ export function CheckoutClient({
                       <>
                         {pixQrCodeBase64 && (
                           <div className="bg-white p-3 inline-block">
-                            <img
+                            <Image
                               src={`data:image/png;base64,${pixQrCodeBase64}`}
                               alt="PIX QR Code"
+                              width={192}
+                              height={192}
+                              unoptimized
                               className="w-48 h-48"
                             />
                           </div>

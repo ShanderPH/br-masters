@@ -4,9 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { User, Search, Check, Loader2 } from "lucide-react";
 import Image from "next/image";
-import { supabase } from "@/lib/supabase/client";
 
-interface UserSuggestion {
+export interface UserSuggestion {
   id: string;
   firebase_id: string;
   name: string;
@@ -35,79 +34,42 @@ export function UserSearchInput({
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Debounced search function
   const searchUsers = useCallback(async (searchTerm: string) => {
-    if (searchTerm.length < 2) {
+    const normalizedTerm = searchTerm.trim();
+    const canSearch = normalizedTerm.length >= 2 || /^\d+$/.test(normalizedTerm);
+
+    if (!canSearch) {
       setSuggestions([]);
+      setSearchError(null);
       return;
     }
 
     setIsLoading(true);
+    setSearchError(null);
+
     try {
-      const { data: profiles, error } = await supabase
-        .from("user_profiles")
-        .select("id, first_name, last_name, avatar_url")
-        .ilike("first_name", `%${searchTerm}%`)
-        .order("first_name")
-        .limit(8);
-
-      if (error) {
-        console.error("Error searching users:", error);
+      const response = await fetch(`/api/auth/user-search?q=${encodeURIComponent(normalizedTerm)}`);
+      if (!response.ok) {
         setSuggestions([]);
-      } else {
-        type ProfileRow = { id: string; first_name: string; last_name: string | null; avatar_url: string | null };
-        const profileRows = (profiles as ProfileRow[] | null) || [];
-        const userIds = profileRows.map((p) => p.id);
-
-        let usersMap: Map<string, { firebase_id: string | null; favorite_team_id: string | null }> = new Map();
-        if (userIds.length > 0) {
-          const { data: usersData } = await supabase
-            .from("users")
-            .select("id, firebase_id, favorite_team_id")
-            .in("id", userIds);
-          type UserRow = { id: string; firebase_id: string | null; favorite_team_id: string | null };
-          const userRows = (usersData as UserRow[] | null) || [];
-          usersMap = new Map(userRows.map((u) => [u.id, { firebase_id: u.firebase_id, favorite_team_id: u.favorite_team_id }]));
-        }
-
-        let teamsMap: Map<string, string | null> = new Map();
-        const teamIds = [...new Set([...usersMap.values()].map((u) => u.favorite_team_id).filter(Boolean))] as string[];
-        if (teamIds.length > 0) {
-          const { data: teamsData } = await supabase
-            .from("teams")
-            .select("id, logo_url")
-            .in("id", teamIds);
-          type TeamRow = { id: string; logo_url: string | null };
-          const teamRows = (teamsData as TeamRow[] | null) || [];
-          teamsMap = new Map(teamRows.map((t) => [t.id, t.logo_url]));
-        }
-
-        const mapped: UserSuggestion[] = profileRows.map((p) => {
-          const userInfo = usersMap.get(p.id);
-          const teamLogo = userInfo?.favorite_team_id ? teamsMap.get(userInfo.favorite_team_id) ?? null : null;
-          return {
-            id: p.id,
-            firebase_id: userInfo?.firebase_id || "",
-            name: `${p.first_name}${p.last_name ? ` ${p.last_name}` : ""}`,
-            favorite_team_logo: teamLogo,
-            avatar_url: p.avatar_url,
-          };
-        });
-
-        setSuggestions(mapped);
+        setSearchError("Não foi possível buscar usuários agora.");
+        return;
       }
+
+      const result = (await response.json()) as { data?: UserSuggestion[] };
+      setSuggestions(result.data ?? []);
     } catch (err) {
       console.error("Error searching users:", err);
       setSuggestions([]);
+      setSearchError("Não foi possível buscar usuários agora.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // Debounce effect
   useEffect(() => {
     const timer = setTimeout(() => {
       if (value && !selectedUser) {
@@ -118,7 +80,6 @@ export function UserSearchInput({
     return () => clearTimeout(timer);
   }, [value, selectedUser, searchUsers]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -135,7 +96,6 @@ export function UserSearchInput({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!showDropdown || suggestions.length === 0) return;
 
@@ -176,12 +136,11 @@ export function UserSearchInput({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
     onChange(newValue);
-    
-    // Clear selected user if input changes
+
     if (selectedUser && newValue !== selectedUser.name) {
       onUserSelect(null);
     }
-    
+
     setShowDropdown(true);
     setHighlightedIndex(-1);
   };
@@ -230,21 +189,18 @@ export function UserSearchInput({
             selectedUser
               ? "pl-12 pr-10 border-brm-primary/50"
               : "pl-12 pr-4 border-white/10"
-          } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+          } ${disabled ? "opacity-50 cursor-not-allowed" : ""} rounded-none`}
         />
 
-        {/* Loading indicator */}
         {isLoading && (
           <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-brm-primary animate-spin" />
         )}
 
-        {/* Selected indicator */}
         {selectedUser && !isLoading && (
           <Check className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-green-500" />
         )}
       </div>
 
-      {/* Dropdown */}
       <AnimatePresence>
         {showDropdown && suggestions.length > 0 && !selectedUser && (
           <motion.div
@@ -253,7 +209,7 @@ export function UserSearchInput({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.15 }}
-            className="absolute z-50 w-full mt-2 py-2 bg-brm-card border border-white/10 shadow-xl overflow-hidden"
+            className="absolute z-50 w-full mt-2 py-2 bg-brm-card border border-white/10 shadow-xl overflow-hidden max-h-72 overflow-y-auto custom-scrollbar"
           >
             {suggestions.map((user, index) => (
               <button
@@ -265,9 +221,8 @@ export function UserSearchInput({
                   highlightedIndex === index
                     ? "bg-brm-primary/20"
                     : "hover:bg-white/5"
-                }`}
+                } cursor-pointer`}
               >
-                {/* Avatar/Team Logo */}
                 <div className="relative w-10 h-10 shrink-0">
                   {user.favorite_team_logo ? (
                     <Image
@@ -283,7 +238,6 @@ export function UserSearchInput({
                   )}
                 </div>
 
-                {/* User Info */}
                 <div className="flex-1 text-left">
                   <p className="font-medium text-brm-text-primary">
                     {highlightName(user.name, value)}
@@ -293,7 +247,6 @@ export function UserSearchInput({
                   </p>
                 </div>
 
-                {/* Selection indicator */}
                 {highlightedIndex === index && (
                   <div className="text-xs text-brm-primary font-medium">
                     Enter ↵
@@ -304,8 +257,7 @@ export function UserSearchInput({
           </motion.div>
         )}
 
-        {/* No results message */}
-        {showDropdown && value.length >= 2 && suggestions.length === 0 && !isLoading && !selectedUser && (
+        {showDropdown && value.length >= 2 && suggestions.length === 0 && !isLoading && !selectedUser && !searchError && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -317,25 +269,36 @@ export function UserSearchInput({
             </p>
           </motion.div>
         )}
+
+        {showDropdown && !!searchError && !selectedUser && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="absolute z-50 w-full mt-2 p-4 bg-brm-card border border-red-400/30 text-center"
+          >
+            <p className="text-red-300 text-sm">{searchError}</p>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
 }
 
-// Helper function to highlight matching text
 function highlightName(name: string, query: string): React.ReactNode {
   if (!query) return name;
 
-  const regex = new RegExp(`(${query})`, "gi");
+  const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${safeQuery})`, "gi");
   const parts = name.split(regex);
 
-  return parts.map((part, index) =>
-    regex.test(part) ? (
+  return parts.map((part, index) => {
+    const matches = part.toLowerCase() === query.toLowerCase();
+    if (!matches) return part;
+    return (
       <span key={index} className="text-brm-primary font-semibold">
         {part}
       </span>
-    ) : (
-      part
-    )
-  );
+    );
+  });
 }

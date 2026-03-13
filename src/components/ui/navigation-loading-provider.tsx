@@ -93,19 +93,31 @@ export function NavigationLoadingProvider({ children }: NavigationLoadingProvide
         const isInternal = href && (href.startsWith("/") || href.startsWith("#"));
         const isSameOrigin = anchor.origin === window.location.origin;
         const isNewTab = anchor.target === "_blank";
+        const currentUrl = new URL(window.location.href);
+        const targetUrl = href ? new URL(anchor.href, currentUrl) : null;
+        const isSameDocumentNavigation =
+          !!targetUrl &&
+          targetUrl.pathname === currentUrl.pathname &&
+          targetUrl.search === currentUrl.search;
         
-        if (isInternal && isSameOrigin && !isNewTab && href !== pathname) {
+        if (isInternal && isSameOrigin && !isNewTab && !isSameDocumentNavigation) {
           queueMicrotask(handleStart);
         }
       }
     };
 
+    const handleHashChange = () => {
+      setIsLoading(false);
+    };
+
     document.addEventListener("click", handleClick, true);
+    window.addEventListener("hashchange", handleHashChange);
 
     return () => {
       history.pushState = originalPushState;
       history.replaceState = originalReplaceState;
       document.removeEventListener("click", handleClick, true);
+      window.removeEventListener("hashchange", handleHashChange);
     };
   }, [pathname]);
 
