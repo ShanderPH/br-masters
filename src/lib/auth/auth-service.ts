@@ -23,6 +23,13 @@ export interface LoginCredentials {
   password: string;
 }
 
+export interface EmailLoginCredentials {
+  email: string;
+  password: string;
+}
+
+const GENERIC_LOGIN_ERROR = "Credenciais inválidas. Verifique seus dados e tente novamente.";
+
 export interface LoginResponse {
   success: boolean;
   user?: AppUser;
@@ -90,7 +97,7 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
     if (userError || !userRow) {
       return {
         success: false,
-        error: "Usuário não encontrado",
+        error: GENERIC_LOGIN_ERROR,
       };
     }
 
@@ -110,7 +117,7 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
     if (authError) {
       return {
         success: false,
-        error: "Senha inválida",
+        error: GENERIC_LOGIN_ERROR,
       };
     }
 
@@ -133,6 +140,53 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
     return {
       success: false,
       error: "Falha na autenticação. Tente novamente.",
+    };
+  }
+}
+
+export async function signInWithEmail(credentials: EmailLoginCredentials): Promise<LoginResponse> {
+  try {
+    const supabase = getSupabaseClient();
+    const { email, password } = credentials;
+
+    if (!email || !password) {
+      return {
+        success: false,
+        error: "E-mail e senha são obrigatórios",
+      };
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError) {
+      return {
+        success: false,
+        error: GENERIC_LOGIN_ERROR,
+      };
+    }
+
+    if (!authData.session) {
+      return {
+        success: false,
+        error: "Falha ao criar sessão",
+      };
+    }
+
+    const appUser = await fetchAppUser(authData.user.id);
+
+    return {
+      success: true,
+      user: appUser ?? undefined,
+      session: authData.session,
+    };
+  } catch (error) {
+    console.error("Erro no login por e-mail:", error);
+    return {
+      success: false,
+      error: GENERIC_LOGIN_ERROR,
     };
   }
 }

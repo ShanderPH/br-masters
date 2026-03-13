@@ -1,0 +1,35 @@
+export const ERROR_MESSAGES = {
+  AUTH: {
+    INVALID_CREDENTIALS: "Credenciais inválidas. Verifique seus dados e tente novamente.",
+    SESSION_EXPIRED: "Sua sessão expirou. Faça login novamente.",
+    UNAUTHORIZED: "Você não tem permissão para acessar esta página.",
+    RATE_LIMITED: "Muitas tentativas. Aguarde antes de tentar novamente.",
+    ACCOUNT_LOCKED: "Conta temporariamente bloqueada por excesso de tentativas.",
+    REGISTRATION_FAILED: "Erro ao criar conta. Tente novamente.",
+    EMAIL_IN_USE: "Este e-mail já está em uso.",
+    USERNAME_IN_USE: "Este nome de usuário já está em uso.",
+    WEAK_PASSWORD: "A senha não atende aos requisitos mínimos de segurança.",
+    GENERIC_LOGIN_ERROR: "Credenciais inválidas. Verifique seu nome de usuário e senha.",
+  },
+  DEPOSIT: {
+    INVALID_AMOUNT: "Valor de depósito inválido.",
+    MIN_AMOUNT: "O valor mínimo de depósito é R$ 5,00.",
+    MAX_AMOUNT: "O valor máximo de depósito é R$ 5.000,00.",
+    ZERO_OR_NEGATIVE: "O valor deve ser maior que zero.",
+    INVALID_CATEGORY: "Categoria de depósito inválida.",
+    INVALID_METHOD: "Método de pagamento inválido.",
+    PROCESSING_ERROR: "Erro ao processar pagamento. Tente novamente.",
+    NOT_A_NUMBER: "Digite um valor numérico válido.",
+  },
+  PROFILE: {
+    NOT_FOUND: "Perfil não encontrado.",
+    UPDATE_FAILED: "Erro ao atualizar perfil. Tente novamente.",
+    LOAD_FAILED: "Erro ao carregar dados do perfil.",
+  },
+  GENERAL: {
+    NETWORK_ERROR: "Erro de conexão. Verifique sua internet.",
+    SERVER_ERROR: "Erro interno do servidor. Tente novamente mais tarde.",
+    NOT_FOUND: "Página não encontrada.",
+    UNKNOWN: "Ocorreu um erro inesperado. Tente novamente.",
+  },
+} as const;

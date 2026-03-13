@@ -22,6 +22,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { getUserLevelInfo, XP_PER_LEVEL } from "@/lib/services/xp-service";
+import { ROUTES } from "@/lib/routes";
 
 interface NavItem {
   label: string;
@@ -44,10 +45,10 @@ interface NavbarProps {
 }
 
 const navItems: NavItem[] = [
-  { label: "Início", href: "/" },
-  { label: "Partidas", href: "/partidas" },
-  { label: "Ranking", href: "/ranking" },
-  { label: "Palpites", href: "/palpites" },
+  { label: "Início", href: ROUTES.HOME },
+  { label: "Partidas", href: ROUTES.PARTIDAS },
+  { label: "Ranking", href: ROUTES.RANKING },
+  { label: "Palpites", href: ROUTES.PALPITES },
 ];
 
 export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps) {
@@ -178,22 +179,22 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                       </div>
                     </Dropdown.Item>
                     <Separator className="my-1 bg-white/10" />
-                    <Dropdown.Item id="profile" textValue="Meu Perfil" href="/profile">
+                    <Dropdown.Item id="profile" textValue="Meu Perfil" href={ROUTES.PROFILE}>
                       <User className="w-4 h-4 mr-2" />
                       <Label>Meu Perfil</Label>
                     </Dropdown.Item>
-                    <Dropdown.Item id="stats" textValue="Estatísticas" href="/stats">
+                    <Dropdown.Item id="stats" textValue="Estatísticas" href={ROUTES.PROFILE}>
                       <Trophy className="w-4 h-4 mr-2" />
                       <Label>Estatísticas</Label>
                     </Dropdown.Item>
                     {isAdmin && (
                       <>
                         <Separator className="my-1 bg-white/10" />
-                        <Dropdown.Item id="admin" textValue="Painel Admin" href="/admin">
+                        <Dropdown.Item id="admin" textValue="Painel Admin" href={ROUTES.ADMIN.ROOT}>
                           <Shield className="w-4 h-4 mr-2 text-brm-accent" />
                           <Label>Painel Admin</Label>
                         </Dropdown.Item>
-                        <Dropdown.Item id="scoring" textValue="Pontuação" href="/admin/scoring">
+                        <Dropdown.Item id="scoring" textValue="Pontuação" href={ROUTES.ADMIN.SCORING}>
                           <BarChart3 className="w-4 h-4 mr-2 text-brm-secondary" />
                           <Label>Pontuação</Label>
                         </Dropdown.Item>
@@ -209,7 +210,7 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
               </Dropdown>
             ) : (
               <NextLink
-                href="/login"
+                href={ROUTES.LOGIN}
                 className="flex items-center gap-2 px-4 py-2 font-display font-bold text-sm uppercase tracking-wider bg-brm-primary text-brm-primary-foreground transition-all duration-200 hover:bg-brm-secondary hover:text-brm-secondary-foreground -skew-x-12"
               >
                 <span className="skew-x-12 inline-flex items-center gap-1">
@@ -456,12 +457,12 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                           </p>
                         </div>
                       </Dropdown.Item>
-                      <Dropdown.Item id="profile" textValue="Meu Perfil" href="/profile">
+                      <Dropdown.Item id="profile" textValue="Meu Perfil" href={ROUTES.PROFILE}>
                         <User className="w-4 h-4 mr-2" />
                         <Label>Meu Perfil</Label>
                         <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
                       </Dropdown.Item>
-                      <Dropdown.Item id="stats" textValue="Estatísticas" href="/stats">
+                      <Dropdown.Item id="stats" textValue="Estatísticas" href={ROUTES.PROFILE}>
                         <Trophy className="w-4 h-4 mr-2" />
                         <Label>Estatísticas</Label>
                         <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
@@ -469,12 +470,12 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                       {isAdmin && (
                         <>
                           <Separator className="my-1 bg-white/10" />
-                          <Dropdown.Item id="admin" textValue="Painel Admin" href="/admin">
+                          <Dropdown.Item id="admin" textValue="Painel Admin" href={ROUTES.ADMIN.ROOT}>
                             <Shield className="w-4 h-4 mr-2 text-brm-accent" />
                             <Label>Painel Admin</Label>
                             <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
                           </Dropdown.Item>
-                          <Dropdown.Item id="scoring" textValue="Pontuação" href="/admin/scoring">
+                          <Dropdown.Item id="scoring" textValue="Pontuação" href={ROUTES.ADMIN.SCORING}>
                             <BarChart3 className="w-4 h-4 mr-2 text-brm-secondary" />
                             <Label>Pontuação</Label>
                             <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
@@ -491,7 +492,7 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                 </Dropdown>
               ) : (
                 <NextLink
-                  href="/login"
+                  href={ROUTES.LOGIN}
                   className="flex items-center gap-2 px-6 py-3 font-display font-bold text-sm uppercase tracking-wider bg-brm-primary text-brm-primary-foreground transition-all duration-200 hover:bg-brm-secondary hover:text-brm-secondary-foreground hover:shadow-lg hover:shadow-brm-secondary/20 -skew-x-12"
                 >
                   <span className="skew-x-12 inline-flex items-center gap-2">

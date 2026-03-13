@@ -7,15 +7,13 @@ import {
   createPixPayment,
   type DepositCategory,
 } from "@/lib/services/mercadopago";
+import { depositSchema } from "@/lib/schemas";
 
 const CATEGORY_LABELS: Record<DepositCategory, string> = {
   tournament_prize: "Premiação por Torneio",
   round_prize: "Premiação por Rodada",
   match_prize: "Premiação por Partida",
 };
-
-const MIN_DEPOSIT = 5;
-const MAX_DEPOSIT = 5000;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getDbClient(fallback: any) {
@@ -37,10 +35,20 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+
+    const coreValidation = depositSchema.safeParse({
+      amount: typeof body.amount === "number" ? body.amount : NaN,
+      category: body.category,
+      paymentMethod: body.paymentMethod,
+    });
+
+    if (!coreValidation.success) {
+      const firstError = coreValidation.error.issues[0]?.message || "Dados inválidos";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const { amount, category, paymentMethod } = coreValidation.data;
     const {
-      amount,
-      category,
-      paymentMethod,
       token,
       paymentMethodId,
       installments,
@@ -51,9 +59,6 @@ export async function POST(request: NextRequest) {
       payerDocType,
       payerDocNumber,
     } = body as {
-      amount: number;
-      category: DepositCategory;
-      paymentMethod: "card" | "pix";
       token?: string;
       paymentMethodId?: string;
       installments?: number;
@@ -64,27 +69,6 @@ export async function POST(request: NextRequest) {
       payerDocType?: string;
       payerDocNumber?: string;
     };
-
-    if (!amount || amount < MIN_DEPOSIT || amount > MAX_DEPOSIT) {
-      return NextResponse.json(
-        { error: `Valor deve ser entre R$ ${MIN_DEPOSIT},00 e R$ ${MAX_DEPOSIT},00` },
-        { status: 400 }
-      );
-    }
-
-    if (!category || !CATEGORY_LABELS[category]) {
-      return NextResponse.json(
-        { error: "Categoria de depósito inválida" },
-        { status: 400 }
-      );
-    }
-
-    if (!paymentMethod || !["card", "pix"].includes(paymentMethod)) {
-      return NextResponse.json(
-        { error: "Método de pagamento inválido" },
-        { status: 400 }
-      );
-    }
 
     if (paymentMethod === "card" && (!token || !paymentMethodId)) {
       return NextResponse.json(

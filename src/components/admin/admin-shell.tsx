@@ -22,6 +22,7 @@ import {
   ArrowLeft,
   ClipboardList,
 } from "lucide-react";
+import { ROUTES } from "@/lib/routes";
 
 interface AdminShellProps {
   user: {
@@ -43,55 +44,55 @@ const sidebarItems: SidebarItem[] = [
   {
     id: "dashboard",
     label: "Visão Geral",
-    href: "/admin",
+    href: ROUTES.ADMIN.ROOT,
     icon: <LayoutDashboard className="w-5 h-5" />,
   },
   {
     id: "users",
     label: "Usuários",
-    href: "/admin/users",
+    href: ROUTES.ADMIN.USERS,
     icon: <Users className="w-5 h-5" />,
   },
   {
     id: "tournaments",
     label: "Torneios",
-    href: "/admin/tournaments",
+    href: ROUTES.ADMIN.TOURNAMENTS,
     icon: <Trophy className="w-5 h-5" />,
   },
   {
     id: "teams",
     label: "Times",
-    href: "/admin/teams",
+    href: ROUTES.ADMIN.TEAMS,
     icon: <Shield className="w-5 h-5" />,
   },
   {
     id: "matches",
     label: "Partidas",
-    href: "/admin/matches",
+    href: ROUTES.ADMIN.MATCHES,
     icon: <Swords className="w-5 h-5" />,
   },
   {
     id: "predictions",
     label: "Palpites",
-    href: "/admin/predictions",
+    href: ROUTES.ADMIN.PREDICTIONS,
     icon: <ClipboardList className="w-5 h-5" />,
   },
   {
     id: "scoring",
     label: "Pontuação",
-    href: "/admin/scoring",
+    href: ROUTES.ADMIN.SCORING,
     icon: <BarChart3 className="w-5 h-5" />,
   },
   {
     id: "players",
     label: "Jogadores",
-    href: "/admin/players",
+    href: ROUTES.ADMIN.PLAYERS,
     icon: <UserRoundCog className="w-5 h-5" />,
   },
   {
     id: "payments",
     label: "Pagamentos",
-    href: "/admin/payments",
+    href: ROUTES.ADMIN.PAYMENTS,
     icon: <CreditCard className="w-5 h-5" />,
   },
 ];
@@ -103,12 +104,12 @@ export function AdminShell({ user, children }: AdminShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const isActive = (href: string) => {
-    if (href === "/admin") return pathname === "/admin";
+    if (href === ROUTES.ADMIN.ROOT) return pathname === ROUTES.ADMIN.ROOT;
     return pathname.startsWith(href);
   };
 
   const handleBackToApp = () => {
-    router.push("/dashboard");
+    router.push(ROUTES.DASHBOARD);
   };
 
   return (
