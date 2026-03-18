@@ -27,7 +27,7 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from("user_profiles")
-    .select("first_name, last_name, total_points, level, xp")
+    .select("first_name, last_name, total_points, level, xp, avatar_url")
     .eq("id", user.id)
     .single();
 
@@ -36,17 +36,36 @@ export default async function DashboardPage() {
   }
 
   type UserRowT = { id: string; firebase_id: string | null; role: string; favorite_team_id: string | null };
-  type ProfileT = { first_name: string; last_name: string | null; total_points: number; level: number; xp: number };
+  type ProfileT = {
+    first_name: string;
+    last_name: string | null;
+    total_points: number;
+    level: number;
+    xp: number;
+    avatar_url: string | null;
+  };
   const ur = userRow as UserRowT;
   const pr = profile as ProfileT;
 
   const [
     { data: prizePool },
+    { data: activePrizePoolsRows },
     { data: rankingProfiles },
     { data: upcomingRows },
-    { count: totalPredictions },
+    { data: userPrizeTransactions },
+    { data: unreadNotificationsRows },
   ] = await Promise.all([
-    supabase.from("prize_pools").select("*").limit(1).single(),
+    supabase
+      .from("prize_pools")
+      .select("*")
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single(),
+    supabase
+      .from("prize_pools")
+      .select("total_approved")
+      .eq("status", "active"),
     supabase
       .from("user_profiles")
       .select("id, first_name, last_name, total_points, is_public")
@@ -59,9 +78,19 @@ export default async function DashboardPage() {
       .order("start_time", { ascending: true })
       .limit(5),
     supabase
-      .from("predictions")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id),
+      .from("transactions")
+      .select("amount, status, type, created_at")
+      .eq("user_id", user.id)
+      .in("type", ["prize", "bonus", "refund"])
+      .in("status", ["approved", "completed"])
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("notifications")
+      .select("id, title, message, type, created_at, is_read")
+      .eq("user_id", user.id)
+      .eq("is_read", false)
+      .order("created_at", { ascending: false })
+      .limit(8),
   ]);
 
   type RankProfileRow = { id: string; first_name: string; last_name: string | null; total_points: number };
@@ -119,15 +148,43 @@ export default async function DashboardPage() {
     points: pr.total_points || 0,
     level: pr.level || 1,
     xp: pr.xp || 0,
+    avatarUrl: pr.avatar_url,
     role: ur.role as "user" | "admin",
   };
 
-  const stats = {
-    totalPredictions: totalPredictions ?? 0,
-    correctPredictions: 0,
-    exactScores: 0,
-    accuracy: 0,
+  type PrizeTxRow = {
+    amount: number;
+    status: "approved" | "completed";
+    type: "prize" | "bonus" | "refund";
+    created_at: string;
   };
+  const userApprovedPrizeTotal = ((userPrizeTransactions as PrizeTxRow[] | null) || []).reduce(
+    (acc, tx) => acc + (Number(tx.amount) || 0),
+    0,
+  );
+
+  type ActivePoolRow = { total_approved: number };
+  const activePrizePoolsTotal = ((activePrizePoolsRows as ActivePoolRow[] | null) || []).reduce(
+    (acc, pool) => acc + (Number(pool.total_approved) || 0),
+    0,
+  );
+  const approvedPrizeTotal = userApprovedPrizeTotal > 0 ? userApprovedPrizeTotal : activePrizePoolsTotal;
+
+  type NotificationRow = {
+    id: string;
+    title: string;
+    message: string;
+    type: string;
+    created_at: string;
+    is_read: boolean;
+  };
+  const unreadNotifications = ((unreadNotificationsRows as NotificationRow[] | null) || []).map((n) => ({
+    id: n.id,
+    title: n.title,
+    message: n.message,
+    type: n.type,
+    createdAt: n.created_at,
+  }));
 
   const ranking = rankProfiles.map((p, index) => ({
     id: p.id,
@@ -165,10 +222,11 @@ export default async function DashboardPage() {
   return (
     <DashboardClient
       user={userData}
-      stats={stats}
       ranking={ranking}
       matches={matches}
       prizePool={prizePoolData}
+      approvedPrizeTotal={approvedPrizeTotal}
+      unreadNotifications={unreadNotifications}
     />
   );
 }
