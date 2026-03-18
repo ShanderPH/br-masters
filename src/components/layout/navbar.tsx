@@ -5,21 +5,18 @@ import { usePathname } from "next/navigation";
 import NextLink from "next/link";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
-import { useTheme } from "next-themes";
 import { Button, Dropdown, Label, Separator } from "@heroui/react";
 import {
-  Sun,
-  Moon,
   Menu,
   X,
   LogOut,
   User,
   Shield,
-  BarChart3,
   ChevronRight,
   Zap,
   Star,
-  Trophy,
+  Bell,
+  Wallet,
 } from "lucide-react";
 import { getUserLevelInfo, XP_PER_LEVEL } from "@/lib/services/xp-service";
 import { ROUTES } from "@/lib/routes";
@@ -38,9 +35,18 @@ interface NavbarProps {
     xp?: number;
     level?: number;
     role?: "user" | "admin";
+    avatarUrl?: string | null;
     favoriteTeamName?: string;
     favoriteTeamLogo?: string;
   } | null;
+  approvedPrizeTotal?: number;
+  unreadNotifications?: Array<{
+    id: string;
+    title: string;
+    message: string;
+    type: string;
+    createdAt: string;
+  }>;
   onLogout?: () => void;
 }
 
@@ -51,12 +57,16 @@ const navItems: NavItem[] = [
   { label: "Palpites", href: ROUTES.PALPITES },
 ];
 
-export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps) {
+export function Navbar({
+  isAuthenticated = false,
+  user,
+  approvedPrizeTotal = 0,
+  unreadNotifications = [],
+  onLogout,
+}: NavbarProps) {
   const pathname = usePathname();
-  const { setTheme, resolvedTheme } = useTheme();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const isDark = resolvedTheme === "dark";
 
   const isAdmin = user?.role === "admin";
   const userPoints = user?.points || 0;
@@ -112,21 +122,52 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
 
           {/* User Area */}
           <div className="flex items-center gap-2">
-            {/* Theme Toggle */}
-            <Button
-              variant="ghost"
-              size="sm"
-              isIconOnly
-              aria-label="Alternar tema"
-              onPress={() => setTheme(isDark ? "light" : "dark")}
-              className="w-9 h-9"
-            >
-              {isDark ? (
-                <Moon className="w-4 h-4 text-brm-secondary" />
-              ) : (
-                <Sun className="w-4 h-4 text-brm-accent" />
-              )}
-            </Button>
+            <Dropdown>
+              <Button
+                variant="ghost"
+                size="sm"
+                isIconOnly
+                aria-label="Notificações"
+                className="w-9 h-9 relative"
+              >
+                <Bell className="w-4 h-4 text-brm-primary" />
+                {unreadNotifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 bg-brm-accent text-white text-[9px] font-black flex items-center justify-center rounded-full">
+                    {Math.min(unreadNotifications.length, 9)}
+                  </span>
+                )}
+              </Button>
+              <Dropdown.Popover className="min-w-[300px] bg-brm-card/95 dark:bg-ea-dark/95 backdrop-blur-xl border border-white/10">
+                <Dropdown.Menu aria-label="Notificações">
+                  <Dropdown.Item id="notif-header" textValue="Notificações" className="cursor-default">
+                    <div className="py-1">
+                      <p className="font-display font-black text-sm uppercase text-brm-text-primary">Notificações</p>
+                      <p className="text-[10px] text-brm-text-muted">{unreadNotifications.length} não lidas</p>
+                    </div>
+                  </Dropdown.Item>
+                  <Separator className="my-1 bg-white/10" />
+                  {unreadNotifications.length === 0 ? (
+                    <Dropdown.Item id="notif-empty" textValue="Sem notificações" className="cursor-default">
+                      <span className="text-xs text-brm-text-muted">Nenhuma notificação nova</span>
+                    </Dropdown.Item>
+                  ) : (
+                    unreadNotifications.slice(0, 5).map((notification) => (
+                      <Dropdown.Item
+                        key={notification.id}
+                        id={`notif-${notification.id}`}
+                        textValue={notification.title}
+                        className="items-start"
+                      >
+                        <div className="flex flex-col gap-0.5 py-0.5">
+                          <p className="text-xs font-bold text-brm-text-primary line-clamp-1">{notification.title}</p>
+                          <p className="text-[10px] text-brm-text-muted line-clamp-2">{notification.message}</p>
+                        </div>
+                      </Dropdown.Item>
+                    ))
+                  )}
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown>
 
             {isAuthenticated && user ? (
               <Dropdown>
@@ -138,6 +179,14 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                   {/* Mobile User Compact */}
                   <div className="flex items-center gap-1.5 bg-white/95 dark:bg-brm-card/95 px-2 py-1 -skew-x-12 shadow-lg border-b-2 border-brm-primary">
                     <div className="flex items-center gap-1.5 skew-x-12">
+                      <div className="w-6 h-6 rounded-full overflow-hidden border border-brm-primary/50 bg-brm-background-dark flex items-center justify-center">
+                        {user.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <User className="w-3 h-3 text-brm-text-muted" />
+                        )}
+                      </div>
                       <div className="flex items-center gap-0.5 bg-brm-primary/20 text-brm-primary font-display font-bold px-1 py-0.5 text-[10px] rounded">
                         <Zap className="w-2.5 h-2.5 fill-current" />
                         <span>{userLevel.level}</span>
@@ -159,13 +208,23 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                     {/* Profile Header */}
                     <Dropdown.Item id="profile_header" textValue="Profile Header" className="cursor-default">
                       <div className="py-2">
-                        <p className="font-display font-bold text-brm-text-primary text-base">
-                          {user.name}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className={`text-xs font-bold uppercase ${userLevel.color}`}>
-                            LVL {userLevel.level} • {userLevel.title}
-                          </span>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-brm-primary/60 bg-brm-background-dark flex items-center justify-center shrink-0">
+                            {user.avatarUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <User className="w-4 h-4 text-brm-text-muted" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-display font-bold text-brm-text-primary text-base">
+                              {user.name}
+                            </p>
+                            <span className={`text-xs font-bold uppercase ${userLevel.color}`}>
+                              LVL {userLevel.level} • {userLevel.title}
+                            </span>
+                          </div>
                         </div>
                         <div className="mt-2 h-1 w-full bg-white/10 overflow-hidden rounded-full">
                           <div
@@ -176,6 +235,14 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                         <p className="text-[10px] text-brm-text-muted mt-1">
                           {XP_PER_LEVEL - userLevel.xpInLevel} XP para próximo nível
                         </p>
+                        <div className="mt-2 p-2 bg-brm-secondary/10 border border-brm-secondary/20">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] uppercase font-bold text-brm-text-muted">Premiação aprovada</span>
+                            <span className="font-display font-black text-sm text-brm-secondary">
+                              R$ {approvedPrizeTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </Dropdown.Item>
                     <Separator className="my-1 bg-white/10" />
@@ -183,20 +250,12 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                       <User className="w-4 h-4 mr-2" />
                       <Label>Meu Perfil</Label>
                     </Dropdown.Item>
-                    <Dropdown.Item id="stats" textValue="Estatísticas" href={ROUTES.PROFILE}>
-                      <Trophy className="w-4 h-4 mr-2" />
-                      <Label>Estatísticas</Label>
-                    </Dropdown.Item>
                     {isAdmin && (
                       <>
                         <Separator className="my-1 bg-white/10" />
                         <Dropdown.Item id="admin" textValue="Painel Admin" href={ROUTES.ADMIN.ROOT}>
                           <Shield className="w-4 h-4 mr-2 text-brm-accent" />
                           <Label>Painel Admin</Label>
-                        </Dropdown.Item>
-                        <Dropdown.Item id="scoring" textValue="Pontuação" href={ROUTES.ADMIN.SCORING}>
-                          <BarChart3 className="w-4 h-4 mr-2 text-brm-secondary" />
-                          <Label>Pontuação</Label>
                         </Dropdown.Item>
                       </>
                     )}
@@ -348,23 +407,54 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
               </nav>
             </div>
 
-            {/* Right: Theme Toggle + User Area */}
+            {/* Right: Notifications + User Area */}
             <div className="flex items-center gap-4">
-              {/* Theme Toggle */}
-              <Button
-                variant="ghost"
-                size="sm"
-                isIconOnly
-                aria-label="Alternar tema"
-                onPress={() => setTheme(isDark ? "light" : "dark")}
-                className="w-10 h-10"
-              >
-                {isDark ? (
-                  <Moon className="w-5 h-5 text-brm-secondary" />
-                ) : (
-                  <Sun className="w-5 h-5 text-brm-accent" />
-                )}
-              </Button>
+              <Dropdown>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  isIconOnly
+                  aria-label="Notificações"
+                  className="w-10 h-10 relative"
+                >
+                  <Bell className="w-5 h-5 text-brm-primary" />
+                  {unreadNotifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-brm-accent text-white text-[10px] font-black flex items-center justify-center rounded-full">
+                      {Math.min(unreadNotifications.length, 9)}
+                    </span>
+                  )}
+                </Button>
+                <Dropdown.Popover className="min-w-[340px] bg-brm-card/95 dark:bg-ea-dark/95 backdrop-blur-xl border border-white/10">
+                  <Dropdown.Menu aria-label="Notificações">
+                    <Dropdown.Item id="notif-header-desktop" textValue="Notificações" className="cursor-default">
+                      <div className="py-1">
+                        <p className="font-display font-black text-sm uppercase text-brm-text-primary">Notificações</p>
+                        <p className="text-[10px] text-brm-text-muted">{unreadNotifications.length} não lidas</p>
+                      </div>
+                    </Dropdown.Item>
+                    <Separator className="my-1 bg-white/10" />
+                    {unreadNotifications.length === 0 ? (
+                      <Dropdown.Item id="notif-empty-desktop" textValue="Sem notificações" className="cursor-default">
+                        <span className="text-xs text-brm-text-muted">Nenhuma notificação nova</span>
+                      </Dropdown.Item>
+                    ) : (
+                      unreadNotifications.slice(0, 6).map((notification) => (
+                        <Dropdown.Item
+                          key={notification.id}
+                          id={`notif-desktop-${notification.id}`}
+                          textValue={notification.title}
+                          className="items-start"
+                        >
+                          <div className="flex flex-col gap-0.5 py-0.5">
+                            <p className="text-xs font-bold text-brm-text-primary line-clamp-1">{notification.title}</p>
+                            <p className="text-[10px] text-brm-text-muted line-clamp-2">{notification.message}</p>
+                          </div>
+                        </Dropdown.Item>
+                      ))
+                    )}
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown>
 
               {isAuthenticated && user ? (
                 <Dropdown>
@@ -414,14 +504,19 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                           <span>{userPoints.toLocaleString()}</span>
                         </div>
 
+                        <div className="flex items-center gap-1 text-xs font-mono font-bold text-brm-secondary">
+                          <Wallet className="w-4 h-4" />
+                          <span>R$ {approvedPrizeTotal.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                        </div>
+
                         {/* Team Logo */}
-                        {user.favoriteTeamLogo && (
+                        {(user.avatarUrl || user.favoriteTeamLogo) && (
                           <div className="relative w-10 h-10 rounded-full border-2 border-brm-primary overflow-hidden bg-brm-card shrink-0">
-                            <Image 
-                              src={user.favoriteTeamLogo} 
-                              alt="Team Logo" 
+                            <Image
+                              src={user.avatarUrl || user.favoriteTeamLogo || "/images/brm-icon.svg"}
+                              alt={user.name}
                               fill
-                              className="object-cover" 
+                              className="object-cover"
                             />
                           </div>
                         )}
@@ -435,9 +530,19 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                       {/* Profile Header */}
                       <Dropdown.Item id="profile_header" textValue="Profile Header" className="cursor-default">
                         <div className="py-3 border-b border-white/10 mb-2">
-                          <p className="font-display font-bold text-brm-text-primary text-lg">
-                            {user.name}
-                          </p>
+                          <div className="flex items-center gap-3">
+                            <div className="relative w-12 h-12 rounded-full overflow-hidden border-2 border-brm-primary/60 shrink-0">
+                              <Image
+                                src={user.avatarUrl || user.favoriteTeamLogo || "/images/brm-icon.svg"}
+                                alt={user.name}
+                                fill
+                                className="object-cover"
+                              />
+                            </div>
+                            <p className="font-display font-bold text-brm-text-primary text-lg">
+                              {user.name}
+                            </p>
+                          </div>
                           <div className="flex items-center justify-between mt-2">
                             <span className={`text-sm font-bold uppercase ${userLevel.color}`}>
                               LVL {userLevel.level} • {userLevel.title}
@@ -455,16 +560,19 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                           <p className="text-[10px] text-brm-text-muted mt-1">
                             {XP_PER_LEVEL - userLevel.xpInLevel} XP para próximo nível
                           </p>
+                          <div className="mt-3 p-2 bg-brm-secondary/10 border border-brm-secondary/20">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] uppercase font-bold text-brm-text-muted">Premiação aprovada</span>
+                              <span className="font-display font-black text-sm text-brm-secondary">
+                                R$ {approvedPrizeTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </Dropdown.Item>
                       <Dropdown.Item id="profile" textValue="Meu Perfil" href={ROUTES.PROFILE}>
                         <User className="w-4 h-4 mr-2" />
                         <Label>Meu Perfil</Label>
-                        <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
-                      </Dropdown.Item>
-                      <Dropdown.Item id="stats" textValue="Estatísticas" href={ROUTES.PROFILE}>
-                        <Trophy className="w-4 h-4 mr-2" />
-                        <Label>Estatísticas</Label>
                         <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
                       </Dropdown.Item>
                       {isAdmin && (
@@ -473,11 +581,6 @@ export function Navbar({ isAuthenticated = false, user, onLogout }: NavbarProps)
                           <Dropdown.Item id="admin" textValue="Painel Admin" href={ROUTES.ADMIN.ROOT}>
                             <Shield className="w-4 h-4 mr-2 text-brm-accent" />
                             <Label>Painel Admin</Label>
-                            <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
-                          </Dropdown.Item>
-                          <Dropdown.Item id="scoring" textValue="Pontuação" href={ROUTES.ADMIN.SCORING}>
-                            <BarChart3 className="w-4 h-4 mr-2 text-brm-secondary" />
-                            <Label>Pontuação</Label>
                             <ChevronRight className="w-4 h-4 ml-auto opacity-50" />
                           </Dropdown.Item>
                         </>

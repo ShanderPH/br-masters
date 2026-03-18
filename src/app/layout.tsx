@@ -17,7 +17,9 @@ export const metadata: Metadata = {
   title: "BR Masters - Palpites de Futebol",
   description: "O melhor jogo de palpites de futebol do Brasil. Faça suas previsões, escale o ranking e prove que você é um verdadeiro mestre!",
   icons: {
-    icon: "/favicon.ico",
+    icon: [{ url: "/images/brm-icon.svg", type: "image/svg+xml" }],
+    shortcut: "/images/brm-icon.svg",
+    apple: "/images/brm-icon.svg",
   },
 };
 

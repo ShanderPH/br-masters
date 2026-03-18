@@ -148,8 +148,10 @@ export function BentoGrid({ children, className }: BentoGridProps) {
         grid gap-2 sm:gap-3 md:gap-4
         grid-cols-1
         min-[480px]:grid-cols-2
+        min-[480px]:auto-rows-[170px]
+        md:auto-rows-[180px]
         lg:grid-cols-4
-        lg:grid-rows-[auto_auto]
+        lg:auto-rows-[200px]
         ${className || ""}
       `}
     >
@@ -163,9 +165,9 @@ export function FeatureTile({ children, className, ...props }: TileWrapperProps)
     <BentoTileWrapper
       className={`
         col-span-1
-        min-[480px]:col-span-2
+        min-[480px]:col-span-2 min-[480px]:row-span-2
         lg:col-span-2 lg:row-span-2
-        h-[260px] min-[480px]:h-[300px] md:h-[340px] lg:h-[420px] xl:h-[460px]
+        min-h-[260px] h-full
         ${className || ""}
       `}
       {...props}
@@ -181,7 +183,7 @@ export function VerticalTile({ children, className, ...props }: TileWrapperProps
       className={`
         col-span-1
         min-[480px]:col-span-1 min-[480px]:row-span-2
-        h-[380px] min-[480px]:h-[400px] lg:h-[420px] xl:h-[460px]
+        min-h-[320px] h-full
         overflow-hidden
         ${className || ""}
       `}
@@ -198,7 +200,8 @@ export function WideTile({ children, className, ...props }: TileWrapperProps) {
       className={`
         col-span-1
         min-[480px]:col-span-2
-        h-[140px] min-[480px]:h-[150px] md:h-[160px]
+        min-[480px]:row-span-1
+        min-h-[150px] h-full
         ${className || ""}
       `}
       {...props}
@@ -213,7 +216,8 @@ export function StandardTile({ children, className, ...props }: TileWrapperProps
     <BentoTileWrapper
       className={`
         col-span-1
-        h-[160px] min-[480px]:h-[170px] md:h-[180px]
+        min-[480px]:row-span-1
+        min-h-[170px] h-full
         ${className || ""}
       `}
       {...props}
@@ -228,14 +232,53 @@ export function CompactVerticalTile({ children, className, ...props }: TileWrapp
     <BentoTileWrapper
       className={`
         col-span-1
-        min-[480px]:col-span-1
-        h-[200px] min-[480px]:h-[220px] lg:h-[200px]
+        min-[480px]:col-span-1 min-[480px]:row-span-1
+        min-h-[170px] h-full
         ${className || ""}
       `}
       {...props}
     >
       {children}
     </BentoTileWrapper>
+  );
+}
+
+export function FullBleedTile({ children, className, colorTheme = "default", delay = 0 }: TileWrapperProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        duration: 0.5,
+        delay,
+        ease: [0.25, 0.46, 0.45, 0.94],
+      }}
+      className={`
+        relative group overflow-hidden
+        bg-brm-card/90 dark:bg-slate-900/90 backdrop-blur-sm
+        border-l-4 hover:border-l-6 transition-all duration-500
+        shadow-xl
+        rounded-none
+        col-span-1
+        min-[480px]:row-span-1
+        min-h-[170px] h-full
+        ${getBorderColor(colorTheme)}
+        ${className || ""}
+      `}
+    >
+      <div className="absolute inset-0 w-full h-full overflow-hidden">
+        {children}
+      </div>
+
+      <div
+        className={`
+          absolute top-0 -left-full w-1/2 h-full
+          bg-linear-to-r from-transparent via-white/8 to-transparent
+          -skew-x-20 group-hover:left-[150%] transition-all duration-700
+          pointer-events-none z-20
+        `}
+      />
+    </motion.div>
   );
 }
 

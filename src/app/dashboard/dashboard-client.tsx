@@ -11,12 +11,13 @@ import {
   NextMatchesCardWithData,
   RankingCardWithData,
   PrizePoolCard,
-  UserStatsCard,
+  UserStatsCardWithData,
   StandingsCard,
   LatestMatchesCard,
   BestOfRoundCard,
   LatestPredictionsCard,
   PredictionModalSimple,
+  FullBleedTile,
 } from "@/components/bento-grid";
 import type { Match, MatchPrediction } from "@/components/bento-grid";
 import { signOut } from "@/lib/auth/auth-service";
@@ -29,19 +30,12 @@ interface DashboardUser {
   points: number;
   level: number;
   xp: number;
+  avatarUrl?: string | null;
   role: "user" | "admin";
-}
-
-interface DashboardStats {
-  totalPredictions: number;
-  correctPredictions: number;
-  exactScores: number;
-  accuracy: number;
 }
 
 interface DashboardClientProps {
   user: DashboardUser;
-  stats: DashboardStats;
   ranking: Array<{
     id: string;
     name: string;
@@ -61,12 +55,21 @@ interface DashboardClientProps {
     total: number;
     participants: number;
   };
+  approvedPrizeTotal: number;
+  unreadNotifications: Array<{
+    id: string;
+    title: string;
+    message: string;
+    type: string;
+    createdAt: string;
+  }>;
 }
 
 export function DashboardClient({
   user,
-  stats,
   prizePool,
+  approvedPrizeTotal,
+  unreadNotifications,
 }: DashboardClientProps) {
   const router = useRouter();
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
@@ -149,14 +152,6 @@ export function DashboardClient({
     }
   }, [user.supabaseId]);
 
-  const userStats = {
-    predictions: stats.totalPredictions,
-    accuracy: stats.accuracy,
-    points: user.points,
-    exactScores: stats.exactScores,
-    correctResults: stats.correctPredictions,
-  };
-
   return (
     <TournamentProvider>
       <div className="min-h-screen relative">
@@ -171,8 +166,11 @@ export function DashboardClient({
               points: user.points,
               level: user.level,
               xp: user.xp,
+              avatarUrl: user.avatarUrl,
               role: user.role,
             }}
+            approvedPrizeTotal={approvedPrizeTotal}
+            unreadNotifications={unreadNotifications}
             onLogout={handleLogout}
           />
 
@@ -203,13 +201,17 @@ export function DashboardClient({
                   delay={0.25}
                 />
 
-                <UserStatsCard stats={userStats} delay={0.3} />
+                <FullBleedTile colorTheme="blue" delay={0.3}>
+                  <UserStatsCardWithData currentUserId={user.supabaseId} />
+                </FullBleedTile>
 
                 <StandingsCard delay={0.35} />
 
                 <LatestMatchesCard delay={0.4} />
 
-                <BestOfRoundCard delay={0.45} />
+                <FullBleedTile colorTheme="gold" delay={0.45}>
+                  <BestOfRoundCard />
+                </FullBleedTile>
               </BentoGrid>
             </motion.section>
           </main>
