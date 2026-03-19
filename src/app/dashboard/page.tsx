@@ -15,26 +15,6 @@ export default async function DashboardPage() {
     redirect(ROUTES.LOGIN);
   }
 
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("id, firebase_id, role, favorite_team_id")
-    .eq("id", user.id)
-    .single();
-
-  if (!userRow) {
-    redirect(ROUTES.LOGIN);
-  }
-
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("first_name, last_name, total_points, level, xp, avatar_url")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile) {
-    redirect(ROUTES.LOGIN);
-  }
-
   type UserRowT = { id: string; firebase_id: string | null; role: string; favorite_team_id: string | null };
   type ProfileT = {
     first_name: string;
@@ -44,10 +24,10 @@ export default async function DashboardPage() {
     xp: number;
     avatar_url: string | null;
   };
-  const ur = userRow as UserRowT;
-  const pr = profile as ProfileT;
 
   const [
+    userRowResult,
+    profileResult,
     { data: prizePool },
     { data: activePrizePoolsRows },
     { data: rankingProfiles },
@@ -55,6 +35,17 @@ export default async function DashboardPage() {
     { data: userPrizeTransactions },
     { data: unreadNotificationsRows },
   ] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, firebase_id, role, favorite_team_id")
+      .eq("id", user.id)
+      .single(),
+
+    supabase
+      .from("user_profiles")
+      .select("first_name, last_name, total_points, level, xp, avatar_url")
+      .eq("id", user.id)
+      .single(),
     supabase
       .from("prize_pools")
       .select("*")
@@ -92,6 +83,16 @@ export default async function DashboardPage() {
       .order("created_at", { ascending: false })
       .limit(8),
   ]);
+
+  const userRow = userRowResult.data;
+  const profile = profileResult.data;
+
+  if (!userRow || !profile) {
+    redirect(ROUTES.LOGIN);
+  }
+
+  const ur = userRow as UserRowT;
+  const pr = profile as ProfileT;
 
   type RankProfileRow = { id: string; first_name: string; last_name: string | null; total_points: number };
   const rankProfiles = (rankingProfiles as RankProfileRow[] | null) || [];

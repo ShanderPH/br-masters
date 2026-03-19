@@ -244,9 +244,16 @@ export default function RegisterPage() {
       const supabase = createClient();
       const normalizedEmail = email.trim().toLowerCase();
 
+      const confirmRedirectTo = `${window.location.origin}${ROUTES.AUTH_CONFIRM}?next=${encodeURIComponent(
+        ROUTES.REGISTER_CONFIRMED
+      )}`;
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
+        options: {
+          emailRedirectTo: confirmRedirectTo,
+        },
       });
 
       if (authError || !authData.user) {
@@ -289,9 +296,6 @@ export default function RegisterPage() {
       setCreatedFirebaseId(profilePayload.firebaseId ?? null);
       setSuccess(true);
 
-      setTimeout(() => {
-        router.push(ROUTES.LOGIN);
-      }, 4000);
     } catch {
       setError(ERROR_MESSAGES.AUTH.REGISTRATION_FAILED);
     } finally {
@@ -328,11 +332,11 @@ export default function RegisterPage() {
           </div>
 
           <h1 className="font-display font-black text-xl text-brm-text-primary uppercase mb-2">
-            Conta Criada com Sucesso
+            Cadastro Quase Concluído
           </h1>
 
           <p className="text-brm-text-secondary text-sm mb-4">
-            Salve seu ID do Palpiteiro para entrar no app.
+            Enviamos um e-mail de confirmação. Clique no link para ativar sua conta e finalizar o cadastro.
           </p>
 
           <div className="bg-white/5 border border-white/10 py-3 px-4 mb-6">
@@ -342,13 +346,16 @@ export default function RegisterPage() {
             </p>
           </div>
 
-          <div className="w-48 h-1 mx-auto bg-white/10 overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: "100%" }}
-              transition={{ duration: 4 }}
-              className="h-full bg-brm-primary"
-            />
+          <div className="flex flex-col gap-3">
+            <Button
+              onPress={() => router.push(ROUTES.LOGIN)}
+              className="w-full rounded-none uppercase font-black tracking-wide"
+            >
+              Ir para Login
+            </Button>
+            <p className="text-xs text-brm-text-muted">
+              Dica: verifique caixa de spam e promoções caso o e-mail não apareça em alguns minutos.
+            </p>
           </div>
         </motion.div>
       </div>

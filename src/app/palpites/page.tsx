@@ -14,71 +14,10 @@ export default async function PalpitesPage() {
     redirect("/login");
   }
 
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("id, username, firebase_id, role, favorite_team_id")
-    .eq("id", user.id)
-    .single();
-
-  if (!userRow) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("first_name, last_name, total_points, level, xp")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile) {
-    redirect("/login");
-  }
-
   type UserRowT = { id: string; username: string; firebase_id: string | null; role: string; favorite_team_id: string | null };
   type ProfileT = { first_name: string; last_name: string | null; total_points: number; level: number; xp: number };
-  const ur = userRow as UserRowT;
-  const pr = profile as ProfileT;
-
-  const { data: tournaments } = await supabase
-    .from("tournaments")
-    .select("id, name, slug, logo_url")
-    .order("display_order", { ascending: true });
-
-  type TournamentRow = {
-    id: string;
-    name: string;
-    slug: string;
-    logo_url: string | null;
-  };
-
-  const tournamentsList = (tournaments as TournamentRow[] | null) || [];
-
-  const { data: seasons } = await supabase
-    .from("tournament_seasons")
-    .select("id, tournament_id, current_round_number")
-    .eq("is_current", true);
-
-  type SeasonRow = {
-    id: string;
-    tournament_id: string;
-    current_round_number: number | null;
-  };
-
-  const seasonsList = (seasons as SeasonRow[] | null) || [];
-
-  const seasonMap: Record<string, number> = {};
-  seasonsList.forEach((s) => {
-    if (s.current_round_number) {
-      seasonMap[s.tournament_id] = s.current_round_number;
-    }
-  });
-
-  const { data: predictions } = await supabase
-    .from("predictions")
-    .select("id, match_id, home_team_goals, away_team_goals, points_earned, is_correct_result, is_exact_score, predicted_at")
-    .eq("user_id", user.id)
-    .order("predicted_at", { ascending: false });
-
+  type TournamentRow = { id: string; name: string; slug: string; logo_url: string | null };
+  type SeasonRow = { id: string; tournament_id: string; current_round_number: number | null };
   type PredictionRow = {
     id: string;
     match_id: string;
@@ -90,7 +29,58 @@ export default async function PalpitesPage() {
     predicted_at: string;
   };
 
-  const predictionRows = (predictions as PredictionRow[] | null) || [];
+  const [
+    userRowResult,
+    profileResult,
+    tournamentsResult,
+    seasonsResult,
+    predictionsResult,
+  ] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, username, firebase_id, role, favorite_team_id")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("user_profiles")
+      .select("first_name, last_name, total_points, level, xp")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("tournaments")
+      .select("id, name, slug, logo_url")
+      .order("display_order", { ascending: true }),
+    supabase
+      .from("tournament_seasons")
+      .select("id, tournament_id, current_round_number")
+      .eq("is_current", true),
+    supabase
+      .from("predictions")
+      .select("id, match_id, home_team_goals, away_team_goals, points_earned, is_correct_result, is_exact_score, predicted_at")
+      .eq("user_id", user.id)
+      .order("predicted_at", { ascending: false }),
+  ]);
+
+  const userRow = userRowResult.data;
+  const profile = profileResult.data;
+
+  if (!userRow || !profile) {
+    redirect("/login");
+  }
+
+  const ur = userRow as UserRowT;
+  const pr = profile as ProfileT;
+  const tournamentsList = (tournamentsResult.data as TournamentRow[] | null) || [];
+  const seasonsList = (seasonsResult.data as SeasonRow[] | null) || [];
+  const predictionRows = (predictionsResult.data as PredictionRow[] | null) || [];
+
+  const seasonMap: Record<string, number> = {};
+  seasonsList.forEach((s) => {
+    if (s.current_round_number) {
+      seasonMap[s.tournament_id] = s.current_round_number;
+    }
+  });
+
   const matchIds = predictionRows.map((p) => p.match_id);
 
   type MatchDataRow = {
@@ -257,19 +247,20 @@ export default async function PalpitesPage() {
     if (otherPredRows.length > 0) {
       const otherUserIds = [...new Set(otherPredRows.map((p) => p.user_id))];
 
-      const { data: otherProfiles } = await supabase
-        .from("user_profiles")
-        .select("id, first_name, last_name")
-        .in("id", otherUserIds);
+      const [{ data: otherProfiles }, { data: otherUsersData }] = await Promise.all([
+        supabase
+          .from("user_profiles")
+          .select("id, first_name, last_name")
+          .in("id", otherUserIds),
+        supabase
+          .from("users")
+          .select("id, favorite_team_id")
+          .in("id", otherUserIds),
+      ]);
 
       type OtherProfileRow = { id: string; first_name: string; last_name: string | null };
       const otherProfilesList = (otherProfiles as OtherProfileRow[] | null) || [];
       const otherProfileMap = new Map(otherProfilesList.map((p) => [p.id, p]));
-
-      const { data: otherUsersData } = await supabase
-        .from("users")
-        .select("id, favorite_team_id")
-        .in("id", otherUserIds);
 
       type OtherUserRow = { id: string; favorite_team_id: string | null };
       const otherUsersRows = (otherUsersData as OtherUserRow[] | null) || [];

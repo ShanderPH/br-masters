@@ -13,13 +13,14 @@ export default async function CheckoutPage() {
     redirect("/login?redirectTo=/checkout");
   }
 
+  type ProfileRow = { first_name: string; last_name: string | null; email: string | null };
+
   const { data: profile } = await supabase
     .from("user_profiles")
     .select("first_name, last_name, email")
     .eq("id", user.id)
     .single();
 
-  type ProfileRow = { first_name: string; last_name: string | null; email: string | null };
   const p = profile as ProfileRow | null;
 
   return (

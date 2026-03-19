@@ -14,40 +14,61 @@ export default async function RankingPage() {
     redirect("/login");
   }
 
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("id, firebase_id, role")
-    .eq("id", user.id)
-    .single();
-
-  if (!userRow) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("first_name, last_name, total_points, level, xp")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile) {
-    redirect("/login");
-  }
-
   type UserRowT = { id: string; firebase_id: string | null; role: string };
   type ProfileT = { first_name: string; last_name: string | null; total_points: number; level: number; xp: number };
+  type GenProfileRow = { id: string; first_name: string; last_name: string | null; total_points: number; predictions_count: number };
+  type TournamentRow = { id: string; name: string; slug: string; logo_url: string | null };
+  type TPRow = { user_id: string; points_earned: number; matches: { tournament_id: string } };
+
+  const [
+    userRowResult,
+    profileResult,
+    generalProfilesResult,
+    tournamentsResult,
+    tournamentPredsResult,
+  ] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, firebase_id, role")
+      .eq("id", user.id)
+      .single(),
+
+    supabase
+      .from("user_profiles")
+      .select("first_name, last_name, total_points, level, xp")
+      .eq("id", user.id)
+      .single(),
+
+    supabase
+      .from("user_profiles")
+      .select("id, first_name, last_name, total_points, predictions_count")
+      .gt("total_points", 0)
+      .order("total_points", { ascending: false })
+      .limit(50),
+
+    supabase
+      .from("tournaments")
+      .select("id, name, slug, logo_url")
+      .order("display_order", { ascending: true }),
+
+    supabase
+      .from("predictions")
+      .select("user_id, points_earned, matches!inner(tournament_id)")
+      .not("points_earned", "is", null),
+  ]);
+
+  const userRow = userRowResult.data;
+  const profile = profileResult.data;
+
+  if (!userRow || !profile) {
+    redirect("/login");
+  }
+
   const ur = userRow as UserRowT;
   const pr = profile as ProfileT;
-
-  const { data: generalProfiles } = await supabase
-    .from("user_profiles")
-    .select("id, first_name, last_name, total_points, predictions_count")
-    .gt("total_points", 0)
-    .order("total_points", { ascending: false })
-    .limit(50);
-
-  type GenProfileRow = { id: string; first_name: string; last_name: string | null; total_points: number; predictions_count: number };
-  const genProfiles = (generalProfiles as GenProfileRow[] | null) || [];
+  const genProfiles = (generalProfilesResult.data as GenProfileRow[] | null) || [];
+  const tournamentsList = (tournamentsResult.data as TournamentRow[] | null) || [];
+  const tpRows = (tournamentPredsResult.data as TPRow[] | null) || [];
 
   const allGenUserIds = genProfiles.map((p) => p.id);
   const genTeamsMap: Map<string, string | null> = new Map();
@@ -65,22 +86,6 @@ export default async function RankingPage() {
       });
     }
   }
-
-  const { data: tournaments } = await supabase
-    .from("tournaments")
-    .select("id, name, slug, logo_url")
-    .order("display_order", { ascending: true });
-
-  type TournamentRow = { id: string; name: string; slug: string; logo_url: string | null };
-  const tournamentsList = (tournaments as TournamentRow[] | null) || [];
-
-  const { data: tournamentPreds } = await supabase
-    .from("predictions")
-    .select("user_id, points_earned, matches!inner(tournament_id)")
-    .not("points_earned", "is", null);
-
-  type TPRow = { user_id: string; points_earned: number; matches: { tournament_id: string } };
-  const tpRows = (tournamentPreds as TPRow[] | null) || [];
 
   const tournamentPointsAgg: Map<string, Map<string, number>> = new Map();
   tpRows.forEach((tp) => {

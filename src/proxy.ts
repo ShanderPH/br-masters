@@ -5,6 +5,8 @@ import { updateSession } from "@/lib/supabase/middleware";
 const PUBLIC_ROUTES = [
   "/login",
   "/register",
+  "/auth/confirm",
+  "/cadastro-confirmado",
   "/redefinir-senha",
   "/about",
   "/support",

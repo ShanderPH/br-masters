@@ -15,26 +15,6 @@ export default async function PartidasPage() {
     redirect("/login");
   }
 
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("id, username, firebase_id, role")
-    .eq("id", user.id)
-    .single();
-
-  if (!userRow) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("first_name, last_name, total_points, level, xp, predictions_count, correct_predictions, exact_score_predictions")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile) {
-    redirect("/login");
-  }
-
   type UserRowT = { id: string; username: string; firebase_id: string | null; role: string };
   type ProfileT = {
     first_name: string;
@@ -46,10 +26,28 @@ export default async function PartidasPage() {
     correct_predictions: number;
     exact_score_predictions: number;
   };
-  const u = userRow as UserRowT;
-  const p = profile as ProfileT;
 
-  const [tournamentsResult, seasonsResult, upcomingResult, finishedResult, rankingResult] = await Promise.all([
+  const [
+    userRowResult,
+    profileResult,
+    tournamentsResult,
+    seasonsResult,
+    upcomingResult,
+    finishedResult,
+    rankingResult,
+    predictionsResult,
+  ] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, username, firebase_id, role")
+      .eq("id", user.id)
+      .single(),
+
+    supabase
+      .from("user_profiles")
+      .select("first_name, last_name, total_points, level, xp, predictions_count, correct_predictions, exact_score_predictions")
+      .eq("id", user.id)
+      .single(),
     supabase
       .from("tournaments")
       .select("id, name, slug, logo_url, format, has_rounds, sofascore_id")
@@ -76,7 +74,22 @@ export default async function PartidasPage() {
       .select("id, rank")
       .eq("id", user.id)
       .single(),
+
+    supabase
+      .from("predictions")
+      .select("match_id, home_team_goals, away_team_goals, points_earned, is_exact_score, is_correct_result")
+      .eq("user_id", user.id),
   ]);
+
+  const userRow = userRowResult.data;
+  const profile = profileResult.data;
+
+  if (!userRow || !profile) {
+    redirect("/login");
+  }
+
+  const u = userRow as UserRowT;
+  const p = profile as ProfileT;
 
   type TournamentRow = {
     id: string;
@@ -222,32 +235,16 @@ export default async function PartidasPage() {
     accuracy_rate: m.accuracy_rate,
   }));
 
-  const allMatches = [...upcomingMatches, ...finishedMatches];
-  const allMatchIds = allMatches.map((m) => m.id);
-
-  let userPredictions: Array<{
+  type PredictionRow = {
     match_id: string;
     home_team_goals: number;
     away_team_goals: number;
     points_earned: number | null;
     is_exact_score: boolean | null;
     is_correct_result: boolean | null;
-  }> = [];
+  };
 
-  if (allMatchIds.length > 0) {
-    const batchSize = 100;
-    for (let i = 0; i < allMatchIds.length; i += batchSize) {
-      const batch = allMatchIds.slice(i, i + batchSize);
-      const { data: preds } = await supabase
-        .from("predictions")
-        .select("match_id, home_team_goals, away_team_goals, points_earned, is_exact_score, is_correct_result")
-        .eq("user_id", user.id)
-        .in("match_id", batch);
-      if (preds) {
-        userPredictions = [...userPredictions, ...(preds as typeof userPredictions)];
-      }
-    }
-  }
+  const userPredictions = (predictionsResult.data as PredictionRow[] | null) || [];
 
   const predictionsMap: PredictionMap = {};
   userPredictions.forEach((pred) => {
