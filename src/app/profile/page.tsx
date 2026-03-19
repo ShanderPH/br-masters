@@ -14,26 +14,6 @@ export default async function ProfilePage() {
     redirect("/login");
   }
 
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("id, firebase_id, username, role, favorite_team_id")
-    .eq("id", user.id)
-    .single();
-
-  if (!userRow) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("first_name, last_name, email, avatar_url, total_points, level, xp")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile) {
-    redirect("/login");
-  }
-
   type UserRowT = {
     id: string;
     firebase_id: string | null;
@@ -51,6 +31,40 @@ export default async function ProfilePage() {
     xp: number;
   };
 
+  const [
+    userRowResult,
+    profileResult,
+    { count: totalPredictions },
+    { data: scoredPredictions },
+  ] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, firebase_id, username, role, favorite_team_id")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("user_profiles")
+      .select("first_name, last_name, email, avatar_url, total_points, level, xp")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("predictions")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id),
+    supabase
+      .from("predictions")
+      .select("points_earned, is_correct, is_exact")
+      .eq("user_id", user.id)
+      .not("points_earned", "is", null),
+  ]);
+
+  const userRow = userRowResult.data;
+  const profile = profileResult.data;
+
+  if (!userRow || !profile) {
+    redirect("/login");
+  }
+
   const ur = userRow as UserRowT;
   const pr = profile as ProfileT;
 
@@ -67,17 +81,6 @@ export default async function ProfilePage() {
     favoriteTeamName = t?.name ?? null;
     favoriteTeamLogo = t?.logo_url ?? null;
   }
-
-  const { count: totalPredictions } = await supabase
-    .from("predictions")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id);
-
-  const { data: scoredPredictions } = await supabase
-    .from("predictions")
-    .select("points_earned, is_correct, is_exact")
-    .eq("user_id", user.id)
-    .not("points_earned", "is", null);
 
   type ScoredPred = { points_earned: number | null; is_correct: boolean | null; is_exact: boolean | null };
   const scored = (scoredPredictions as ScoredPred[] | null) || [];

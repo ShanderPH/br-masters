@@ -2,8 +2,6 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { AnimatePresence } from "framer-motion";
-import { PageLoading } from "./page-loading";
 
 interface NavigationLoadingContextType {
   isLoading: boolean;
@@ -30,29 +28,23 @@ export function NavigationLoadingProvider({ children }: NavigationLoadingProvide
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isMountedRef = useRef(false);
-  const pendingLoadingRef = useRef(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const startLoading = useCallback(() => {
-    if (isMountedRef.current) {
-      setIsLoading(true);
-    } else {
-      pendingLoadingRef.current = true;
-    }
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setIsLoading(true);
   }, []);
 
   const stopLoading = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setIsLoading(false);
-    pendingLoadingRef.current = false;
   }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
-    if (pendingLoadingRef.current) {
-      setIsLoading(true);
-      pendingLoadingRef.current = false;
-    }
     return () => {
       isMountedRef.current = false;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
 
@@ -66,8 +58,10 @@ export function NavigationLoadingProvider({ children }: NavigationLoadingProvide
     const handleStart = () => {
       if (isMountedRef.current) {
         setIsLoading(true);
-      } else {
-        pendingLoadingRef.current = true;
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => {
+          if (isMountedRef.current) setIsLoading(false);
+        }, 8000);
       }
     };
 
@@ -87,7 +81,7 @@ export function NavigationLoadingProvider({ children }: NavigationLoadingProvide
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const anchor = target.closest("a");
-      
+
       if (anchor) {
         const href = anchor.getAttribute("href");
         const isInternal = href && (href.startsWith("/") || href.startsWith("#"));
@@ -99,7 +93,7 @@ export function NavigationLoadingProvider({ children }: NavigationLoadingProvide
           !!targetUrl &&
           targetUrl.pathname === currentUrl.pathname &&
           targetUrl.search === currentUrl.search;
-        
+
         if (isInternal && isSameOrigin && !isNewTab && !isSameDocumentNavigation) {
           queueMicrotask(handleStart);
         }
@@ -123,10 +117,44 @@ export function NavigationLoadingProvider({ children }: NavigationLoadingProvide
 
   return (
     <NavigationLoadingContext.Provider value={{ isLoading, startLoading, stopLoading }}>
-      <AnimatePresence mode="wait">
-        {isLoading && <PageLoading key="nav-loading" />}
-      </AnimatePresence>
+      {isLoading && <NavigationProgressBar />}
       {children}
     </NavigationLoadingContext.Provider>
+  );
+}
+
+function NavigationProgressBar() {
+  const [progress, setProgress] = useState(20);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 90) return prev;
+        const increment = prev < 50 ? 8 : prev < 70 ? 4 : 1;
+        return Math.min(prev + increment, 90);
+      });
+    }, 200);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
+
+  return (
+    <div
+      className="fixed top-0 left-0 right-0 z-[9999] pointer-events-none"
+      role="progressbar"
+      aria-valuenow={progress}
+    >
+      <div
+        className="h-[3px] bg-gradient-to-r from-brm-primary via-brm-secondary to-brm-primary transition-all duration-300 ease-out"
+        style={{ width: `${progress}%` }}
+      />
+      <div
+        className="absolute top-0 right-0 h-[3px] w-24 bg-gradient-to-l from-brm-secondary/80 to-transparent opacity-80 animate-pulse"
+        style={{ transform: `translateX(-${100 - progress}%)` }}
+      />
+    </div>
   );
 }

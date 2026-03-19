@@ -14,36 +14,8 @@ export default async function ClassificacaoPage() {
     redirect("/login");
   }
 
-  const { data: userRow } = await supabase
-    .from("users")
-    .select("id, firebase_id, role")
-    .eq("id", user.id)
-    .single();
-
-  if (!userRow) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("first_name, last_name, total_points, level, xp")
-    .eq("id", user.id)
-    .single();
-
-  if (!profile) {
-    redirect("/login");
-  }
-
   type UserRowT = { id: string; firebase_id: string | null; role: string };
   type ProfileT = { first_name: string; last_name: string | null; total_points: number; level: number; xp: number };
-  const ur = userRow as UserRowT;
-  const pr = profile as ProfileT;
-
-  const { data: tournaments } = await supabase
-    .from("tournaments")
-    .select("id, name, slug, logo_url, format, sofascore_id")
-    .order("display_order", { ascending: true });
-
   type TournamentRow = {
     id: string;
     name: string;
@@ -52,16 +24,45 @@ export default async function ClassificacaoPage() {
     format: string | null;
     sofascore_id: number | null;
   };
-
-  const tournamentsList = (tournaments as TournamentRow[] | null) || [];
-
-  const { data: seasons } = await supabase
-    .from("tournament_seasons")
-    .select("id, tournament_id, is_current, sofascore_season_id")
-    .eq("is_current", true);
-
   type SeasonRow = { id: string; tournament_id: string; is_current: boolean; sofascore_season_id: number | null };
-  const seasonsList = (seasons as SeasonRow[] | null) || [];
+
+  const [
+    userRowResult,
+    profileResult,
+    tournamentsResult,
+    seasonsResult,
+  ] = await Promise.all([
+    supabase
+      .from("users")
+      .select("id, firebase_id, role")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("user_profiles")
+      .select("first_name, last_name, total_points, level, xp")
+      .eq("id", user.id)
+      .single(),
+    supabase
+      .from("tournaments")
+      .select("id, name, slug, logo_url, format, sofascore_id")
+      .order("display_order", { ascending: true }),
+    supabase
+      .from("tournament_seasons")
+      .select("id, tournament_id, is_current, sofascore_season_id")
+      .eq("is_current", true),
+  ]);
+
+  const userRow = userRowResult.data;
+  const profile = profileResult.data;
+
+  if (!userRow || !profile) {
+    redirect("/login");
+  }
+
+  const ur = userRow as UserRowT;
+  const pr = profile as ProfileT;
+  const tournamentsList = (tournamentsResult.data as TournamentRow[] | null) || [];
+  const seasonsList = (seasonsResult.data as SeasonRow[] | null) || [];
   const seasonMap = new Map(seasonsList.map((s) => [s.tournament_id, s]));
 
   const formattedTournaments = tournamentsList.map((t) => {
