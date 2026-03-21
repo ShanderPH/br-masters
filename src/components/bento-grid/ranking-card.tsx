@@ -243,96 +243,50 @@ export function RankingCardWithData({
         }
 
         if (currentTournament) {
-          const { data: tournamentPreds } = await supabase
-            .from("predictions")
-            .select("user_id, points_earned, matches!inner(tournament_id)")
-            .eq("matches.tournament_id", currentTournament.id)
-            .not("points_earned", "is", null);
+          // Use API route to bypass RLS for tournament and round rankings
+          const apiUrl = `/api/dashboard/rankings?tournamentId=${currentTournament.id}${computedRound > 0 ? `&round=${computedRound}` : ""}`;
+          const response = await fetch(apiUrl);
 
-          type PredRow = { user_id: string; points_earned: number };
-          const phRows = (tournamentPreds as PredRow[] | null) || [];
+          if (response.ok) {
+            type ApiUser = { id: string; name: string; points: number; rank: number; teamLogo: string | null };
+            const { tournamentRanking, roundRanking } = await response.json() as {
+              tournamentRanking: ApiUser[];
+              roundRanking: ApiUser[];
+            };
 
-          const aggMap: Map<string, number> = new Map();
-          phRows.forEach((r) => aggMap.set(r.user_id, (aggMap.get(r.user_id) || 0) + (r.points_earned || 0)));
-          const sortedEntries = [...aggMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-
-          if (sortedEntries.length > 0) {
-            const tUserIds = sortedEntries.map(([uid]) => uid);
-            const { data: tProfilesData } = await supabase
-              .from("user_profiles")
-              .select("id, first_name, last_name")
-              .in("id", tUserIds);
-
-            type TPRow = { id: string; first_name: string; last_name: string | null };
-            const tProfiles = (tProfilesData as TPRow[] | null) || [];
-            const tProfileMap = new Map(tProfiles.map((p) => [p.id, p]));
-
-            const tournamentUsers: RankingUser[] = sortedEntries.map(([uid, pts], idx) => {
-              const prof = tProfileMap.get(uid);
-              return {
-                id: uid,
-                name: prof ? `${prof.first_name}${prof.last_name ? ` ${prof.last_name}` : ""}` : "Jogador",
-                points: pts,
-                rank: idx + 1,
-                previousRank: null,
-                teamLogo: teamLogoMap.get(uid) ?? null,
-              };
-            });
-
-            items.push({
-              id: `tournament-${currentTournament.id}`,
-              type: "tournament",
-              title: currentTournament.name,
-              subtitle: "Campeonato",
-              logo: currentTournament.logo_url,
-              users: tournamentUsers,
-            });
-          }
-
-          if (computedRound > 0) {
-            const { data: roundPreds } = await supabase
-              .from("predictions")
-              .select("user_id, points_earned, matches!inner(tournament_id, round_number)")
-              .eq("matches.tournament_id", currentTournament.id)
-              .eq("matches.round_number", computedRound)
-              .not("points_earned", "is", null);
-
-            const rPhRows = (roundPreds as PredRow[] | null) || [];
-
-            const rAggMap: Map<string, number> = new Map();
-            rPhRows.forEach((r) => rAggMap.set(r.user_id, (rAggMap.get(r.user_id) || 0) + (r.points_earned || 0)));
-            const rSorted = [...rAggMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-
-            if (rSorted.length > 0) {
-              const rUserIds = rSorted.map(([uid]) => uid);
-              const { data: rProfilesData } = await supabase
-                .from("user_profiles")
-                .select("id, first_name, last_name")
-                .in("id", rUserIds);
-
-              type RPRow = { id: string; first_name: string; last_name: string | null };
-              const rProfiles = (rProfilesData as RPRow[] | null) || [];
-              const rProfileMap = new Map(rProfiles.map((p) => [p.id, p]));
-
-              const roundUsers: RankingUser[] = rSorted.map(([uid, pts], idx) => {
-                const prof = rProfileMap.get(uid);
-                return {
-                  id: uid,
-                  name: prof ? `${prof.first_name}${prof.last_name ? ` ${prof.last_name}` : ""}` : "Jogador",
-                  points: pts,
-                  rank: idx + 1,
+            if (tournamentRanking.length > 0) {
+              items.push({
+                id: `tournament-${currentTournament.id}`,
+                type: "tournament",
+                title: currentTournament.name,
+                subtitle: "Campeonato",
+                logo: currentTournament.logo_url,
+                users: tournamentRanking.map((u) => ({
+                  id: u.id,
+                  name: u.name,
+                  points: u.points,
+                  rank: u.rank,
                   previousRank: null,
-                  teamLogo: teamLogoMap.get(uid) ?? null,
-                };
+                  teamLogo: u.teamLogo ?? teamLogoMap.get(u.id) ?? null,
+                })),
               });
+            }
 
+            if (roundRanking.length > 0 && computedRound > 0) {
               items.push({
                 id: `round-${currentTournament.id}-${computedRound}`,
                 type: "round",
                 title: `Rodada ${computedRound}`,
                 subtitle: currentTournament.name,
                 logo: currentTournament.logo_url,
-                users: roundUsers,
+                users: roundRanking.map((u) => ({
+                  id: u.id,
+                  name: u.name,
+                  points: u.points,
+                  rank: u.rank,
+                  previousRank: null,
+                  teamLogo: u.teamLogo ?? teamLogoMap.get(u.id) ?? null,
+                })),
               });
             }
           }
