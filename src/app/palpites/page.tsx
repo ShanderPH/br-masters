@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { PalpitesClient } from "./palpites-client";
 
 export default async function PalpitesPage() {
@@ -77,7 +77,7 @@ export default async function PalpitesPage() {
   const seasonMap: Record<string, number> = {};
   seasonsList.forEach((s) => {
     if (s.current_round_number) {
-      seasonMap[s.tournament_id] = s.current_round_number;
+      seasonMap[String(s.tournament_id)] = s.current_round_number;
     }
   });
 
@@ -118,11 +118,11 @@ export default async function PalpitesPage() {
     teamsMap = new Map(teamRows.map((t) => [t.id, { name: t.name, name_code: t.name_code, logo_url: t.logo_url }]));
   }
 
-  const matchMap = new Map(matchesData.map((m) => [m.id, m]));
+  const matchMap = new Map(matchesData.map((m) => [String(m.id), m]));
 
   const formattedPredictions = predictionRows
     .map((p) => {
-      const match = matchMap.get(p.match_id);
+      const match = matchMap.get(String(p.match_id));
       if (!match) return null;
 
       const homeTeam = teamsMap.get(match.home_team_id);
@@ -130,13 +130,13 @@ export default async function PalpitesPage() {
 
       return {
         id: p.id,
-        matchId: p.match_id,
+        matchId: String(p.match_id),
         homeTeamGoals: p.home_team_goals,
         awayTeamGoals: p.away_team_goals,
         pointsEarned: p.points_earned || 0,
         isCorrect: p.is_correct_result || false,
         isExactScore: p.is_exact_score || false,
-        tournamentId: match.tournament_id,
+        tournamentId: String(match.tournament_id),
         roundNumber: match.round_number || 0,
         predictedAt: p.predicted_at,
         match: {
@@ -191,7 +191,7 @@ export default async function PalpitesPage() {
     role: ur.role as "user" | "admin",
   };
 
-  const activeTournamentIds = new Set(tournamentsList.map((t) => t.id));
+  const activeTournamentIds = new Set(tournamentsList.map((t) => String(t.id)));
 
   const filteredPredictions = formattedPredictions.filter((p) =>
     activeTournamentIds.has(p.tournamentId)
@@ -202,11 +202,11 @@ export default async function PalpitesPage() {
   );
 
   const tournamentsWithPredictions = tournamentsList.filter((t) =>
-    tournamentIdsWithPredictions.has(t.id)
+    tournamentIdsWithPredictions.has(String(t.id))
   );
 
   const formattedTournaments = tournamentsWithPredictions.map((t) => ({
-    id: t.id,
+    id: String(t.id),
     name: t.name,
     logo: t.logo_url || "/images/brasileirao-logo.svg",
   }));
@@ -226,7 +226,9 @@ export default async function PalpitesPage() {
   }> = [];
 
   if (allMatchIdsForOthers.length > 0) {
-    const { data: otherPreds } = await supabase
+    // Use service client to bypass RLS — scores are redacted below for non-finished matches
+    const serviceDb = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase;
+    const { data: otherPreds } = await serviceDb
       .from("predictions")
       .select("match_id, user_id, home_team_goals, away_team_goals, points_earned, is_correct_result, is_exact_score")
       .in("match_id", allMatchIdsForOthers)
@@ -283,17 +285,20 @@ export default async function PalpitesPage() {
         const favTeamId = otherUsersMap.get(p.user_id);
         const teamLogo = favTeamId ? otherTeamsMap.get(favTeamId) ?? null : null;
         const name = prof ? `${prof.first_name}${prof.last_name ? ` ${prof.last_name}` : ""}` : "Jogador";
+        // Redact scores for non-finished matches to enforce business rule server-side
+        const match = matchMap.get(String(p.match_id));
+        const isFinished = match?.status === "finished";
 
         return {
-          matchId: p.match_id,
+          matchId: String(p.match_id),
           oddsUserId: p.user_id,
           userName: name,
           userTeamLogo: teamLogo,
-          homeTeamGoals: p.home_team_goals,
-          awayTeamGoals: p.away_team_goals,
-          pointsEarned: p.points_earned || 0,
-          isCorrect: p.is_correct_result || false,
-          isExactScore: p.is_exact_score || false,
+          homeTeamGoals: isFinished ? p.home_team_goals : 0,
+          awayTeamGoals: isFinished ? p.away_team_goals : 0,
+          pointsEarned: isFinished ? (p.points_earned || 0) : 0,
+          isCorrect: isFinished ? (p.is_correct_result || false) : false,
+          isExactScore: isFinished ? (p.is_exact_score || false) : false,
         };
       });
     }
