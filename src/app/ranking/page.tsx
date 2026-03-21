@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { RankingClient } from "./ranking-client";
 
 export default async function RankingPage() {
@@ -51,10 +51,10 @@ export default async function RankingPage() {
       .select("id, name, slug, logo_url")
       .order("display_order", { ascending: true }),
 
-    supabase
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase)
       .from("predictions")
       .select("user_id, points_earned, matches!inner(tournament_id)")
-      .not("points_earned", "is", null),
+      .gt("points_earned", 0),
   ]);
 
   const userRow = userRowResult.data;
@@ -97,6 +97,38 @@ export default async function RankingPage() {
     userMap.set(tp.user_id, (userMap.get(tp.user_id) || 0) + (tp.points_earned || 0));
   });
 
+  // Fetch profiles for any users in tournament predictions not already in genProfiles
+  const genProfileMap = new Map(genProfiles.map((p) => [p.id, p]));
+  const allTpUserIds = [...new Set(tpRows.map((tp) => tp.user_id))];
+  const missingUserIds = allTpUserIds.filter((id) => !genProfileMap.has(id));
+  if (missingUserIds.length > 0) {
+    const { data: missingProfiles } = await supabase
+      .from("user_profiles")
+      .select("id, first_name, last_name, total_points, predictions_count")
+      .in("id", missingUserIds);
+    type GenProfileRow2 = { id: string; first_name: string; last_name: string | null; total_points: number; predictions_count: number };
+    ((missingProfiles as GenProfileRow2[] | null) || []).forEach((p) => genProfileMap.set(p.id, p));
+  }
+
+  // Fetch team logos for any users in tournament predictions not already in genTeamsMap
+  const missingTeamUserIds = allTpUserIds.filter((id) => !genTeamsMap.has(id));
+  if (missingTeamUserIds.length > 0) {
+    const { data: extraUsersData } = await supabase.from("users").select("id, favorite_team_id").in("id", missingTeamUserIds);
+    type GUR2 = { id: string; favorite_team_id: string | null };
+    const extraUsers = (extraUsersData as GUR2[] | null) || [];
+    const extraTeamIds = [...new Set(extraUsers.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
+    if (extraTeamIds.length > 0) {
+      const { data: etd } = await supabase.from("teams").select("id, logo_url").in("id", extraTeamIds);
+      type TR2 = { id: string; logo_url: string | null };
+      const extraTeamsLookup = new Map(((etd as TR2[] | null) || []).map((t) => [t.id, t.logo_url]));
+      extraUsers.forEach((u) => {
+        genTeamsMap.set(u.id, u.favorite_team_id ? extraTeamsLookup.get(u.favorite_team_id) ?? null : null);
+      });
+    } else {
+      extraUsers.forEach((u) => genTeamsMap.set(u.id, null));
+    }
+  }
+
   const userName = `${pr.first_name}${pr.last_name ? ` ${pr.last_name}` : ""}`;
 
   const userData = {
@@ -117,8 +149,6 @@ export default async function RankingPage() {
     accuracy: 0,
     favoriteTeamLogo: genTeamsMap.get(p.id) ?? null,
   }));
-
-  const genProfileMap = new Map(genProfiles.map((p) => [p.id, p]));
 
   const tournamentRankings: Record<string, Array<{
     id: string;

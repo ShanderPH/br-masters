@@ -242,18 +242,18 @@ export function PartidasClient({
             .update({
               home_team_goals: homeScore,
               away_team_goals: awayScore,
-              winner,
+              winner: winner,
               updated_at: new Date().toISOString(),
             } as Record<string, unknown>)
             .eq("user_id", user.supabaseId)
-            .eq("match_id", String(selectedMatchForModal.id));
+            .eq("match_id", selectedMatchForModal.id);
         } else {
           await (supabase.from("predictions") as ReturnType<typeof supabase.from>).insert({
             user_id: user.supabaseId,
-            match_id: String(selectedMatchForModal.id),
+            match_id: selectedMatchForModal.id,
             home_team_goals: homeScore,
             away_team_goals: awayScore,
-            winner,
+            winner: winner,
           } as Record<string, unknown>);
         }
 

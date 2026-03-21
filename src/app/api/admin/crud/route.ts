@@ -90,11 +90,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Tabela não permitida" }, { status: 400 });
     }
 
-    // Use service client for write operations to bypass RLS (if available)
-    const isReadOperation = action === "list" || action === "get";
-    const useServiceClient = !isReadOperation && process.env.SUPABASE_SERVICE_ROLE_KEY;
+    // Use service client for all admin operations to bypass RLS
+    // Admin identity is already verified above via verifyAdmin()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = (useServiceClient ? createServiceClient() : supabase) as any;
+    const db = (process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase) as any;
 
     switch (action) {
       case "list": {

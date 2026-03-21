@@ -248,7 +248,7 @@ export default async function PartidasPage() {
 
   const predictionsMap: PredictionMap = {};
   userPredictions.forEach((pred) => {
-    predictionsMap[pred.match_id] = {
+    predictionsMap[String(pred.match_id)] = {
       homeScore: pred.home_team_goals,
       awayScore: pred.away_team_goals,
       pointsEarned: pred.points_earned ?? undefined,
