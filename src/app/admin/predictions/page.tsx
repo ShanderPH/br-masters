@@ -27,12 +27,10 @@ interface PredictionRow {
   match_id: string;
   home_team_goals: number;
   away_team_goals: number;
-  winner_team: string;
+  winner: string;
   points_earned: number | null;
-  is_correct: boolean | null;
+  is_correct_result: boolean | null;
   is_exact_score: boolean | null;
-  tournament_id: string | null;
-  season_id: string | null;
   predicted_at: string;
 }
 
@@ -134,9 +132,6 @@ export default function PredictionsManagementPage() {
   const fetchPredictions = useCallback(async () => {
     const filters: { column: string; operator: string; value: unknown }[] = [];
 
-    if (selectedTournamentId) {
-      filters.push({ column: "tournament_id", operator: "eq", value: selectedTournamentId });
-    }
     if (userFilter) {
       filters.push({ column: "user_id", operator: "eq", value: userFilter });
     }
@@ -210,6 +205,7 @@ export default function PredictionsManagementPage() {
       const match = matchMap.get(pred.match_id);
       const roundNum = match?.round_number ?? 0;
 
+      if (selectedTournamentId && match?.tournament_id !== selectedTournamentId) continue;
       if (roundFilter && roundNum !== Number(roundFilter)) continue;
 
       if (!groups.has(roundNum)) {
@@ -228,7 +224,7 @@ export default function PredictionsManagementPage() {
       group.predictions.push({ ...pred, match, userName: getUserName(pred.user_id) });
       group.totalPoints += pred.points_earned || 0;
       if (pred.is_exact_score) group.exactScores++;
-      if (pred.is_correct) group.correctResults++;
+      if (pred.is_correct_result) group.correctResults++;
     }
 
     return Array.from(groups.values()).sort((a, b) => a.round - b.round);
@@ -249,7 +245,7 @@ export default function PredictionsManagementPage() {
     const fd = new FormData(e.currentTarget);
     await update("predictions", editingPrediction.id, {
       points_earned: Number(fd.get("points_earned")),
-      is_correct: fd.get("is_correct") === "true",
+      is_correct_result: fd.get("is_correct") === "true",
       is_exact_score: fd.get("is_exact_score") === "true",
     });
     setIsEditOpen(false);
@@ -431,8 +427,8 @@ export default function PredictionsManagementPage() {
                               </td>
                               <td className="py-2 px-3 text-center">
                                 {pred.is_exact_score && <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 text-[9px] font-bold">EXATO</span>}
-                                {!pred.is_exact_score && pred.is_correct && <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[9px] font-bold">CORRETO</span>}
-                                {!pred.is_correct && !pred.is_exact_score && pred.match?.status === "finished" && <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[9px] font-bold">ERRADO</span>}
+                                {!pred.is_exact_score && pred.is_correct_result && <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[9px] font-bold">CORRETO</span>}
+                                {!pred.is_correct_result && !pred.is_exact_score && pred.match?.status === "finished" && <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[9px] font-bold">ERRADO</span>}
                                 {pred.match?.status !== "finished" && <span className="px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400 text-[9px] font-bold">PENDENTE</span>}
                               </td>
                               <td className="py-2 px-3 text-center">
@@ -487,8 +483,8 @@ export default function PredictionsManagementPage() {
                         <td className="py-2 px-3 text-right font-mono font-bold text-brm-secondary">{pred.points_earned ?? 0}</td>
                         <td className="py-2 px-3 text-center hidden sm:table-cell">
                           {pred.is_exact_score && <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 text-[9px] font-bold">EXATO</span>}
-                          {!pred.is_exact_score && pred.is_correct && <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[9px] font-bold">CORRETO</span>}
-                          {!pred.is_correct && !pred.is_exact_score && <span className="px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400 text-[9px] font-bold">—</span>}
+                          {!pred.is_exact_score && pred.is_correct_result && <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 text-[9px] font-bold">CORRETO</span>}
+                          {!pred.is_correct_result && !pred.is_exact_score && <span className="px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400 text-[9px] font-bold">—</span>}
                         </td>
                         <td className="py-2 px-3 text-center text-brm-text-muted">{formatDateTime(pred.predicted_at)}</td>
                         <td className="py-2 px-3 text-center">
@@ -541,7 +537,7 @@ export default function PredictionsManagementPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-brm-text-muted uppercase mb-1">Correto?</label>
-                          <select name="is_correct" defaultValue={String(editingPrediction.is_correct ?? false)}
+                          <select name="is_correct" defaultValue={String(editingPrediction.is_correct_result ?? false)}
                             className="w-full bg-white/5 text-sm text-brm-text-primary rounded-lg px-3 py-2 border border-white/10">
                             <option value="true">Sim</option>
                             <option value="false">Não</option>
