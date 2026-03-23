@@ -116,9 +116,15 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
   const [standings, setStandings] = useState<StandingTeam[]>([]);
   const [loadingStandings, setLoadingStandings] = useState(false);
 
+  const isLeague = currentTournament?.format === "league";
+
   useEffect(() => {
     const fetchStandings = async () => {
-      if (!currentTournament) return;
+      if (!currentTournament || !isLeague) {
+        setStandings([]);
+        setLoadingStandings(false);
+        return;
+      }
       setLoadingStandings(true);
       try {
         const sofascoreTournamentId = currentTournament.sofascore_id;
@@ -150,7 +156,7 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
     };
 
     fetchStandings();
-  }, [currentTournament, currentSeason]);
+  }, [currentTournament, currentSeason, isLeague]);
 
   if (isLoading) {
     return (
@@ -249,7 +255,14 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
         </div>
 
 
-        {loadingStandings ? (
+        {!isLeague ? (
+          <div className="flex flex-col items-center justify-center flex-1 py-4 gap-2">
+            <Trophy className="w-8 h-8 text-brm-accent/40" />
+            <span className="font-display text-[10px] uppercase tracking-wider text-brm-text-muted dark:text-gray-500 text-center">
+              {currentTournament?.format === "knockout" ? "Mata-Mata" : "Fase de Grupos + Mata-Mata"}
+            </span>
+          </div>
+        ) : loadingStandings ? (
           <div className="flex items-center justify-center py-4 flex-1">
             <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
           </div>

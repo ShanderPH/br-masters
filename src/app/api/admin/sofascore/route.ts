@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || "sofascore.p.rapidapi.com";
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "";
@@ -21,6 +21,19 @@ interface SofascoreEvent {
     groupName?: string;
     uniqueTournament?: { id: number; name: string; slug?: string };
   };
+}
+
+function detectTournamentFormat(
+  rounds: Array<{ round?: number; name?: string; slug?: string }>,
+  standings: Array<{ name?: string }>
+): "league" | "knockout" | "mixed" {
+  const hasNamedRounds = rounds.some((r) => !!r.name && r.name.trim().length > 0);
+  const hasNumericRounds = rounds.some((r) => typeof r.round === "number");
+  const hasGroups = standings.some((s) => !!s.name && /group|grupo/i.test(s.name));
+
+  if ((hasNamedRounds && hasNumericRounds) || (hasNamedRounds && hasGroups)) return "mixed";
+  if (hasNamedRounds && !hasNumericRounds) return "knockout";
+  return "league";
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -141,7 +154,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "RAPIDAPI_KEY não configurada" }, { status: 500 });
     }
 
-    const db: DB = supabase;
+    const db: DB = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase;
     const body = await request.json();
     const { action } = body;
 
@@ -180,6 +193,237 @@ export async function POST(request: NextRequest) {
         );
 
         return NextResponse.json({ seasons: data.seasons || [] });
+      }
+
+      case "setup_tournament": {
+        const sofascoreTournamentId = Number(body.sofascoreTournamentId ?? body.tournamentId);
+        const sofascoreSeasonId = Number(body.sofascoreSeasonId ?? body.seasonId);
+        const formatOverride = typeof body.format === "string" ? body.format : undefined;
+
+        if (!sofascoreTournamentId || !sofascoreSeasonId) {
+          return NextResponse.json(
+            { error: "tournamentId/seasonId (SofaScore) são obrigatórios" },
+            { status: 400 }
+          );
+        }
+
+        const [roundsData, seasonsData, standingsData] = await Promise.all([
+          sofascoreFetch(
+            `/tournaments/get-rounds?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}`
+          ),
+          sofascoreFetch(`/tournaments/get-seasons?tournamentId=${sofascoreTournamentId}`),
+          sofascoreFetch(
+            `/tournaments/get-standings?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}&type=total`
+          ),
+        ]);
+
+        const rounds = (roundsData.rounds || []) as Array<{ round?: number; name?: string; slug?: string }>;
+
+        type StandingEntry = {
+          name?: string;
+          tournament?: {
+            name?: string;
+            slug?: string;
+            uniqueTournament?: {
+              id?: number;
+              name?: string;
+              slug?: string;
+              primaryColorHex?: string;
+              secondaryColorHex?: string;
+            };
+          };
+        };
+        const standings = (standingsData.standings || []) as StandingEntry[];
+
+        const detectedFormat =
+          formatOverride === "league" || formatOverride === "knockout" || formatOverride === "mixed"
+            ? formatOverride
+            : detectTournamentFormat(rounds, standings);
+
+        const firstUniqueTournament = standings
+          .map((s) => s.tournament?.uniqueTournament)
+          .find((u) => !!u?.name);
+
+        let tournamentName: string;
+        let tournamentSlugFromApi: string | undefined;
+
+        type UniqueT = { name?: string; slug?: string } | undefined;
+
+        const extractUniqueFromEvents = (data: unknown): UniqueT => {
+          const events = (data as { events?: Array<{ tournament?: { uniqueTournament?: UniqueT } }> } | undefined)?.events;
+          return events?.[0]?.tournament?.uniqueTournament;
+        };
+
+        if (firstUniqueTournament?.name) {
+          tournamentName = firstUniqueTournament.name.trim();
+          tournamentSlugFromApi = firstUniqueTournament.slug;
+        } else {
+          const nextData = await sofascoreFetch(
+            `/tournaments/get-next-matches?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}&pageIndex=0`
+          ).catch(() => ({ events: [] }));
+
+          let uniqueFromEvent = extractUniqueFromEvents(nextData);
+
+          if (!uniqueFromEvent?.name) {
+            const lastData = await sofascoreFetch(
+              `/tournaments/get-last-matches?tournamentId=${sofascoreTournamentId}&seasonId=${sofascoreSeasonId}&pageIndex=0`
+            ).catch(() => ({ events: [] }));
+            uniqueFromEvent = extractUniqueFromEvents(lastData);
+          }
+
+          tournamentName = uniqueFromEvent?.name?.trim() || `Torneio ${sofascoreTournamentId}`;
+          tournamentSlugFromApi = uniqueFromEvent?.slug;
+        }
+
+        const tournamentSlug = tournamentSlugFromApi ||
+          tournamentName
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "") || `tournament-${sofascoreTournamentId}`;
+
+        const hasGroups = standings.length > 1 || standings.some((s) => !!s.name);
+        const hasNamedRounds = rounds.some((r) => !!r.name);
+
+        const currentRound =
+          ((roundsData.currentRound as { round?: number } | undefined)?.round as number | undefined) || null;
+
+        const { data: existingTournament } = await db
+          .from("tournaments")
+          .select("id")
+          .eq("sofascore_id", sofascoreTournamentId)
+          .maybeSingle();
+
+        const tournamentPayload = {
+          name: tournamentName,
+          slug: tournamentSlug,
+          logo_url: `/api/tournament-logo/${sofascoreTournamentId}`,
+          format: detectedFormat,
+          has_rounds: true,
+          has_groups: hasGroups,
+          has_playoff_series: hasNamedRounds,
+          sofascore_id: sofascoreTournamentId,
+          updated_at: new Date().toISOString(),
+        };
+
+        let tournamentId: string;
+        if (existingTournament?.id) {
+          const { error: updateTournamentError } = await db
+            .from("tournaments")
+            .update(tournamentPayload)
+            .eq("id", (existingTournament as { id: string }).id);
+
+          if (updateTournamentError) {
+            return NextResponse.json({ error: updateTournamentError.message }, { status: 500 });
+          }
+          tournamentId = (existingTournament as { id: string }).id;
+        } else {
+          const { data: createdTournament, error: createTournamentError } = await db
+            .from("tournaments")
+            .insert(tournamentPayload)
+            .select("id")
+            .single();
+
+          if (createTournamentError || !createdTournament) {
+            return NextResponse.json(
+              { error: createTournamentError?.message || "Erro ao criar torneio" },
+              { status: 500 }
+            );
+          }
+          tournamentId = (createdTournament as { id: string }).id;
+        }
+
+        const allSeasons = (seasonsData.seasons || []) as Array<{
+          id: number;
+          name?: string;
+          year?: string;
+          yearStart?: number;
+          yearEnd?: number;
+        }>;
+
+        const selectedSeasonMeta =
+          allSeasons.find((s) => s.id === sofascoreSeasonId) ||
+          ({ id: sofascoreSeasonId, name: String(sofascoreSeasonId) } as {
+            id: number;
+            name?: string;
+            year?: string;
+            yearStart?: number;
+            yearEnd?: number;
+          });
+
+        const seasonYear =
+          selectedSeasonMeta.year ||
+          (selectedSeasonMeta.yearStart ? String(selectedSeasonMeta.yearStart) : null) ||
+          String(new Date().getFullYear());
+
+        const yearStart = selectedSeasonMeta.yearStart || Number(seasonYear);
+        const yearEnd = selectedSeasonMeta.yearEnd || yearStart;
+
+        const { data: existingSeason } = await db
+          .from("tournament_seasons")
+          .select("id")
+          .eq("tournament_id", tournamentId)
+          .eq("sofascore_season_id", sofascoreSeasonId)
+          .maybeSingle();
+
+        await db
+          .from("tournament_seasons")
+          .update({ is_current: false, updated_at: new Date().toISOString() })
+          .eq("tournament_id", tournamentId);
+
+        const seasonPayload = {
+          tournament_id: tournamentId,
+          year: seasonYear,
+          start_date: `${yearStart}-01-01`,
+          end_date: `${yearEnd}-12-31`,
+          status: "ongoing",
+          is_current: true,
+          current_round_number: currentRound,
+          sofascore_season_id: sofascoreSeasonId,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (existingSeason?.id) {
+          const { error: updateSeasonError } = await db
+            .from("tournament_seasons")
+            .update(seasonPayload)
+            .eq("id", (existingSeason as { id: string }).id);
+
+          if (updateSeasonError) {
+            return NextResponse.json({ error: updateSeasonError.message }, { status: 500 });
+          }
+        } else {
+          const { error: createSeasonError } = await db
+            .from("tournament_seasons")
+            .insert({ ...seasonPayload, created_at: new Date().toISOString() });
+
+          if (createSeasonError) {
+            return NextResponse.json({ error: createSeasonError.message }, { status: 500 });
+          }
+        }
+
+        const { data: savedTournament } = await db
+          .from("tournaments")
+          .select("id, name, slug, logo_url, format, is_featured, display_order, sofascore_id")
+          .eq("id", tournamentId)
+          .single();
+
+        const { data: savedSeasons } = await db
+          .from("tournament_seasons")
+          .select("id, tournament_id, year, is_current, current_round_number, sofascore_season_id, status")
+          .eq("tournament_id", tournamentId)
+          .order("year", { ascending: false });
+
+        return NextResponse.json({
+          tournament: savedTournament,
+          seasons: savedSeasons || [],
+          rounds,
+          currentRound: (roundsData.currentRound as { round: number; name?: string } | null) || null,
+          detectedFormat,
+        });
       }
 
       case "import_matches": {
