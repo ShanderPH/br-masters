@@ -20,6 +20,7 @@ interface Standing {
   scoresAgainst: number;
   goalDifference: number;
   points: number;
+  groupName?: string | null;
 }
 
 interface StandingsResponse {
@@ -115,38 +116,46 @@ async function fetchFromSofaScore(tournamentId: string, seasonId: string): Promi
 
     const apiData = JSON.parse(text);
 
-    if (!apiData.standings?.[0]?.rows) {
+    if (!Array.isArray(apiData.standings) || apiData.standings.length === 0) {
       return null;
     }
 
-    const standings: Standing[] = apiData.standings[0].rows.map(
-      (row: {
-        team: { id: number; name: string; shortName: string; country?: { name: string } };
-        matches: number;
-        wins: number;
-        draws: number;
-        losses: number;
-        scoresFor: number;
-        scoresAgainst: number;
-        points: number;
-      }, index: number) => ({
-        team: {
-          id: row.team.id,
-          name: row.team.name,
-          shortName: row.team.shortName,
-          logo: `/api/team-logo/${row.team.id}`,
-          country: row.team.country?.name || "Brazil",
-        },
-        position: index + 1,
-        matches: row.matches,
-        wins: row.wins,
-        draws: row.draws,
-        losses: row.losses,
-        scoresFor: row.scoresFor,
-        scoresAgainst: row.scoresAgainst,
-        goalDifference: row.scoresFor - row.scoresAgainst,
-        points: row.points,
-      })
+    const standings: Standing[] = apiData.standings.flatMap(
+      (standingGroup: {
+        name?: string;
+        rows?: Array<{
+          team: { id: number; name: string; shortName: string; country?: { name: string } };
+          position?: number;
+          matches: number;
+          wins: number;
+          draws: number;
+          losses: number;
+          scoresFor: number;
+          scoresAgainst: number;
+          points: number;
+        }>;
+      }) => {
+        const rows = standingGroup.rows || [];
+        return rows.map((row, index) => ({
+          team: {
+            id: row.team.id,
+            name: row.team.name,
+            shortName: row.team.shortName,
+            logo: `/api/team-logo/${row.team.id}`,
+            country: row.team.country?.name || "Brazil",
+          },
+          position: row.position ?? index + 1,
+          matches: row.matches,
+          wins: row.wins,
+          draws: row.draws,
+          losses: row.losses,
+          scoresFor: row.scoresFor,
+          scoresAgainst: row.scoresAgainst,
+          goalDifference: row.scoresFor - row.scoresAgainst,
+          points: row.points,
+          groupName: standingGroup.name || null,
+        }));
+      }
     );
 
     return {
@@ -195,6 +204,7 @@ export async function GET(request: Request) {
     const { data: seasonData } = await db
       .from("tournament_seasons")
       .select("id")
+      .eq("tournament_id", tournamentData?.id || "")
       .eq("sofascore_season_id", parseInt(sofascoreSeasonId))
       .single();
 
