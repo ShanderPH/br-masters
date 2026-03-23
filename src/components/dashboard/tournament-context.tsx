@@ -150,20 +150,28 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
 
   const computeAutoRounds = async (
     tournamentIds: string[],
-    _seasonRows: Array<{ id: string; tournament_id: string; current_round_number: number | null }>,
+    seasonRows: Array<{ id: string; tournament_id: string; current_round_number: number | null }>,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     supabase: any
   ) => {
     const roundMap: Record<string, number> = {};
+    const seasonByTournament = new Map(seasonRows.map((s) => [s.tournament_id, s.id]));
 
     for (const tId of tournamentIds) {
-      const { data: matchesData } = await supabase
+      let query = supabase
         .from("matches")
         .select("round_number, status, start_time")
         .eq("tournament_id", tId)
         .order("round_number", { ascending: true });
 
-      type MatchRow = { round_number: number; status: string; start_time: string };
+      const currentSeasonId = seasonByTournament.get(tId);
+      if (currentSeasonId) {
+        query = query.eq("season_id", currentSeasonId);
+      }
+
+      const { data: matchesData } = await query;
+
+      type MatchRow = { round_number: number | null; status: string; start_time: string };
       const matches = (matchesData as MatchRow[] | null) || [];
 
       if (matches.length === 0) {
@@ -174,6 +182,7 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
       const roundStats = new Map<number, { total: number; finished: number; live: number; scheduled: number; hasLive: boolean }>();
       
       for (const m of matches) {
+        if (typeof m.round_number !== "number") continue;
         const rn = m.round_number;
         if (!roundStats.has(rn)) {
           roundStats.set(rn, { total: 0, finished: 0, live: 0, scheduled: 0, hasLive: false });
@@ -186,6 +195,13 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
       }
 
       const sortedRounds = Array.from(roundStats.keys()).sort((a, b) => a - b);
+
+      if (sortedRounds.length === 0) {
+        const seasonFallback = seasonRows.find((s) => s.tournament_id === tId)?.current_round_number ?? 1;
+        roundMap[tId] = Math.max(1, seasonFallback);
+        continue;
+      }
+
       let currentRound = 1;
 
       for (const rn of sortedRounds) {
