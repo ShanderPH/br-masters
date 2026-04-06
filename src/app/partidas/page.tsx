@@ -36,6 +36,7 @@ export default async function PartidasPage() {
     finishedResult,
     rankingResult,
     predictionsResult,
+    brazilianTeamsResult,
   ] = await Promise.all([
     supabase
       .from("users")
@@ -50,7 +51,7 @@ export default async function PartidasPage() {
       .single(),
     supabase
       .from("tournaments")
-      .select("id, name, slug, logo_url, format, has_rounds, sofascore_id")
+      .select("id, name, slug, logo_url, format, has_rounds, sofascore_id, filter_brazil_only")
       .order("display_order", { ascending: true }),
 
     supabase
@@ -79,6 +80,11 @@ export default async function PartidasPage() {
       .from("predictions")
       .select("match_id, home_team_goals, away_team_goals, points_earned, is_exact_score, is_correct_result")
       .eq("user_id", user.id),
+
+    supabase
+      .from("teams")
+      .select("id")
+      .eq("is_brazilian", true),
   ]);
 
   const userRow = userRowResult.data;
@@ -99,6 +105,7 @@ export default async function PartidasPage() {
     format: string;
     has_rounds: boolean;
     sofascore_id: number | null;
+    filter_brazil_only: boolean;
   };
 
   type SeasonRow = {
@@ -168,6 +175,7 @@ export default async function PartidasPage() {
     format: t.format,
     has_rounds: t.has_rounds,
     sofascore_id: t.sofascore_id,
+    filter_brazil_only: t.filter_brazil_only,
   }));
 
   const seasons: MatchSeason[] = ((seasonsResult.data as SeasonRow[] | null) || []).map((s) => ({
@@ -244,6 +252,9 @@ export default async function PartidasPage() {
     is_correct_result: boolean | null;
   };
 
+  type BrazilianTeamRow = { id: string };
+  const brazilianTeamIds = ((brazilianTeamsResult.data as BrazilianTeamRow[] | null) || []).map((t) => t.id);
+
   const userPredictions = (predictionsResult.data as PredictionRow[] | null) || [];
 
   const predictionsMap: PredictionMap = {};
@@ -284,6 +295,7 @@ export default async function PartidasPage() {
       upcomingMatches={upcomingMatches}
       finishedMatches={finishedMatches}
       initialPredictions={predictionsMap}
+      brazilianTeamIds={brazilianTeamIds}
     />
   );
 }
