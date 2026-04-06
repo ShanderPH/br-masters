@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSwipeDrag } from "@/hooks/use-swipe-drag";
 import { Tabs } from "@heroui/react";
 import { ChevronLeft, ChevronRight, Crown, Loader2, Star, Target, Trophy } from "lucide-react";
 import { useTournamentContext } from "@/components/dashboard/tournament-context";
@@ -121,6 +122,10 @@ export function BestOfRoundCard() {
   const [snapshots, setSnapshots] = useState<Record<StatsViewKey, BestSnapshot>>(EMPTY_SNAPSHOT);
   const [isLoading, setIsLoading] = useState(true);
   const [scoringConfig, setScoringConfig] = useState<ScoringConfig>({ exact_score_points: 5, correct_result_points: 2, incorrect_points: 0 });
+
+  const goToNext = useCallback(() => setActiveView((prev) => rotateView(prev, 1)), []);
+  const goToPrev = useCallback(() => setActiveView((prev) => rotateView(prev, -1)), []);
+  const { dragProps } = useSwipeDrag({ onNext: goToNext, onPrev: goToPrev });
 
   useEffect(() => {
     const switchTimer = window.setInterval(() => {
@@ -352,7 +357,7 @@ export function BestOfRoundCard() {
     <div className="relative h-full w-full overflow-hidden">
       <BestCardBackground view={snapshot.view} />
 
-      <div className="absolute inset-0 z-10 flex flex-col">
+      <motion.div className="absolute inset-0 z-10 flex flex-col" {...dragProps}>
         {/* Header: Tabs + Navigation */}
         <div className="flex shrink-0 items-center justify-between gap-2 px-2 pt-2 sm:px-3 sm:pt-3">
           <Tabs
@@ -533,7 +538,7 @@ export function BestOfRoundCard() {
             />
           ))}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

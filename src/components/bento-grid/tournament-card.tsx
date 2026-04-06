@@ -1,13 +1,101 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Trophy, ChevronRight, ChevronLeft, Calendar, Loader2 } from "lucide-react";
+import { Trophy, ChevronRight, ChevronLeft, Calendar, Loader2, Swords } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { FeatureTile } from "./bento-grid";
 import { useTournamentContext } from "@/components/dashboard/tournament-context";
 import { getTeamLogoPath } from "@/lib/services/team-logo-service";
+import { createClient } from "@/lib/supabase/client";
+import { useSwipeDrag } from "@/hooks/use-swipe-drag";
+
+interface BrazilTeamEntry {
+  teamId: string;
+  teamName: string;
+  teamLogo: string | null;
+  opponentName: string;
+  opponentLogo: string | null;
+  isHome: boolean;
+  startTime: string;
+  roundNumber: number | null;
+}
+
+const BrazilianTeamsView = ({
+  entries,
+  onViewMatches,
+}: {
+  entries: BrazilTeamEntry[];
+  onViewMatches: () => void;
+}) => {
+  if (entries.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center flex-1 py-4 gap-2 text-brm-text-muted">
+        <Trophy className="w-8 h-8 opacity-20" />
+        <span className="font-display text-[10px] uppercase tracking-wider text-center">
+          Sem jogos agendados para times brasileiros
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto custom-scrollbar">
+      <div className="flex items-center gap-2 mb-1 shrink-0">
+        <Swords className="w-3 h-3 text-brm-accent" />
+        <span className="font-display text-[10px] text-brm-text-secondary uppercase tracking-wider">
+          Próximos jogos
+        </span>
+        <span className="font-display text-[8px] text-brm-text-muted ml-auto">
+          {entries.length} time{entries.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {entries.map((entry, idx) => {
+        const teamLogo = entry.teamLogo || getTeamLogoPath(entry.teamName);
+        const oppLogo = entry.opponentLogo || getTeamLogoPath(entry.opponentName);
+        const date = new Date(entry.startTime);
+        const dateStr = date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+        const timeStr = date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+        return (
+          <motion.div
+            key={entry.teamId}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: idx * 0.04 }}
+            className="flex items-center gap-1.5 py-1 px-2 bg-white/5 hover:bg-white/10 transition-colors -skew-x-2"
+          >
+            <div className="skew-x-2 flex items-center gap-1.5 w-full">
+              <div className="relative w-5 h-5 shrink-0">
+                <Image src={teamLogo} alt={entry.teamName} fill unoptimized className="object-contain" />
+              </div>
+              <span className="font-display font-bold text-[9px] sm:text-[10px] text-brm-text-primary uppercase truncate flex-1 min-w-0">
+                {entry.teamName.split(" ")[0]}
+              </span>
+              <span className="font-display text-[8px] text-brm-text-muted uppercase shrink-0 px-1">
+                {entry.isHome ? "×" : "@"}
+              </span>
+              <div className="relative w-5 h-5 shrink-0">
+                <Image src={oppLogo} alt={entry.opponentName} fill unoptimized className="object-contain" />
+              </div>
+              <span className="font-display text-[9px] sm:text-[10px] text-brm-text-secondary uppercase truncate w-16 text-right shrink-0">
+                {entry.opponentName.split(" ")[0]}
+              </span>
+              <span className="font-display text-[8px] text-brm-text-muted shrink-0 ml-1 tabular-nums">
+                {dateStr}
+              </span>
+              <span className="font-display text-[8px] text-brm-accent shrink-0 tabular-nums hidden sm:block">
+                {timeStr}
+              </span>
+            </div>
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+};
 
 interface StandingTeam {
   position: number;
@@ -100,6 +188,11 @@ const StandingsTable = ({ standings, maxTeams = 6 }: { standings: StandingTeam[]
   );
 };
 
+// Module-level cache: persists across re-renders, cleared only on full page reload.
+// Keys are composed IDs so each tournament+season pair is stored once.
+const standingsCache = new Map<string, StandingTeam[]>();
+const brazilTeamsCache = new Map<string, BrazilTeamEntry[]>();
+
 export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
   const router = useRouter();
   const {
@@ -115,48 +208,147 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
 
   const [standings, setStandings] = useState<StandingTeam[]>([]);
   const [loadingStandings, setLoadingStandings] = useState(false);
+  const [brazilianEntries, setBrazilianEntries] = useState<BrazilTeamEntry[]>([]);
+  const [loadingBrazilTeams, setLoadingBrazilTeams] = useState(false);
+
+  const { dragProps, isDraggingRef } = useSwipeDrag({ onNext: goToNext, onPrev: goToPrev });
+  // Tracks whether the component is still mounted when an async fetch resolves
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const isLeague = currentTournament?.format === "league";
 
+  // Standings are only fetched for league tournaments (e.g. Brasileirão).
+  // The module-level standingsCache prevents re-fetching the same tournament+season
+  // during the session. The effect is also debounced (400 ms) so rapid carousel
+  // swipes cancel pending fetches before they hit the network.
+  const sofascoreTournamentId = currentTournament?.sofascore_id ?? null;
+  const sofascoreSeasonId = currentSeason?.sofascore_season_id ?? null;
+
   useEffect(() => {
-    const fetchStandings = async () => {
-      if (!currentTournament || !isLeague) {
-        setStandings([]);
-        setLoadingStandings(false);
-        return;
-      }
-      setLoadingStandings(true);
+    if (!isLeague || !sofascoreTournamentId) {
+      setStandings([]);
+      setLoadingStandings(false);
+      return;
+    }
+
+    const cacheKey = `${sofascoreTournamentId}-${sofascoreSeasonId ?? "no-season"}`;
+    const cached = standingsCache.get(cacheKey);
+    if (cached) {
+      setStandings(cached);
+      setLoadingStandings(false);
+      return;
+    }
+
+    setLoadingStandings(true);
+
+    const timer = setTimeout(async () => {
       try {
-        const sofascoreTournamentId = currentTournament.sofascore_id;
-        const sofascoreSeasonId = currentSeason?.sofascore_season_id;
-
-        if (!sofascoreTournamentId) {
-          setStandings([]);
-          setLoadingStandings(false);
-          return;
-        }
-
         const params = new URLSearchParams({ tournamentId: String(sofascoreTournamentId) });
         if (sofascoreSeasonId) params.set("seasonId", String(sofascoreSeasonId));
 
-        const response = await fetch(
-          `/api/sofascore/standings?${params.toString()}`
-        );
+        const response = await fetch(`/api/sofascore/standings?${params.toString()}`);
+        if (!mountedRef.current) return;
         if (response.ok) {
           const data = await response.json();
-          setStandings(Array.isArray(data.standings) ? data.standings : []);
+          const result: StandingTeam[] = Array.isArray(data.standings) ? data.standings : [];
+          standingsCache.set(cacheKey, result);
+          setStandings(result);
         } else {
           setStandings([]);
         }
       } catch {
-        setStandings([]);
+        if (mountedRef.current) setStandings([]);
       } finally {
-        setLoadingStandings(false);
+        if (mountedRef.current) setLoadingStandings(false);
       }
-    };
+    }, 400);
 
-    fetchStandings();
-  }, [currentTournament, currentSeason, isLeague]);
+    return () => clearTimeout(timer);
+  }, [isLeague, sofascoreTournamentId, sofascoreSeasonId]);
+
+  const currentTournamentId = currentTournament?.id ?? null;
+
+  useEffect(() => {
+    if (isLeague || !currentTournamentId) {
+      setBrazilianEntries([]);
+      return;
+    }
+
+    const cached = brazilTeamsCache.get(currentTournamentId);
+    if (cached) {
+      setBrazilianEntries(cached);
+      setLoadingBrazilTeams(false);
+      return;
+    }
+
+    setLoadingBrazilTeams(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const supabase = createClient();
+        const { data: matchRows } = await supabase
+          .from("matches")
+          .select("id, start_time, round_number, status, home_team_id, away_team_id")
+          .eq("tournament_id", currentTournamentId)
+          .in("status", ["scheduled", "live"])
+          .order("start_time", { ascending: true })
+          .limit(50);
+
+        if (!mountedRef.current) return;
+
+        if (!matchRows || matchRows.length === 0) {
+          brazilTeamsCache.set(currentTournamentId, []);
+          setBrazilianEntries([]);
+          setLoadingBrazilTeams(false);
+          return;
+        }
+
+        const allTeamIds = [...new Set(matchRows.flatMap((m: { home_team_id: string; away_team_id: string }) => [m.home_team_id, m.away_team_id]))];
+        const { data: teamRows } = await supabase
+          .from("teams")
+          .select("id, name, logo_url, is_brazilian")
+          .in("id", allTeamIds);
+
+        if (!mountedRef.current) return;
+
+        type TeamRow = { id: string; name: string; logo_url: string | null; is_brazilian: boolean };
+        const teamsMap = new Map<string, TeamRow>(
+          ((teamRows as TeamRow[] | null) || []).map((t) => [t.id, t])
+        );
+
+        const seen = new Set<string>();
+        const entries: BrazilTeamEntry[] = [];
+
+        for (const m of matchRows as Array<{ id: string; start_time: string; round_number: number | null; status: string; home_team_id: string; away_team_id: string }>) {
+          const homeTeam = teamsMap.get(m.home_team_id);
+          const awayTeam = teamsMap.get(m.away_team_id);
+          if (!homeTeam || !awayTeam) continue;
+
+          if (homeTeam.is_brazilian && !seen.has(homeTeam.id)) {
+            seen.add(homeTeam.id);
+            entries.push({ teamId: homeTeam.id, teamName: homeTeam.name, teamLogo: homeTeam.logo_url, opponentName: awayTeam.name, opponentLogo: awayTeam.logo_url, isHome: true, startTime: m.start_time, roundNumber: m.round_number });
+          }
+          if (awayTeam.is_brazilian && !seen.has(awayTeam.id)) {
+            seen.add(awayTeam.id);
+            entries.push({ teamId: awayTeam.id, teamName: awayTeam.name, teamLogo: awayTeam.logo_url, opponentName: homeTeam.name, opponentLogo: homeTeam.logo_url, isHome: false, startTime: m.start_time, roundNumber: m.round_number });
+          }
+        }
+
+        brazilTeamsCache.set(currentTournamentId, entries);
+        setBrazilianEntries(entries);
+      } catch {
+        if (mountedRef.current) setBrazilianEntries([]);
+      } finally {
+        if (mountedRef.current) setLoadingBrazilTeams(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [isLeague, currentTournamentId]);
 
   if (isLoading) {
     return (
@@ -190,13 +382,14 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
       delay={delay}
       bgImage={undefined}
       onClick={() => {
+        if (isDraggingRef.current) return;
         const params = new URLSearchParams();
         if (currentTournament?.id) params.set("torneio", currentTournament.id);
         if (currentRound > 0) params.set("rodada", String(currentRound));
         router.push(`/partidas?${params.toString()}`);
       }}
     >
-      <div className="flex flex-col h-full">
+      <motion.div className="flex flex-col h-full" {...dragProps}>
         <div className="flex items-start justify-between mb-2 shrink-0">
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="relative w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 bg-white/20 rounded-lg p-1 shrink-0 backdrop-blur-md shadow-lg">
@@ -256,12 +449,20 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
 
 
         {!isLeague ? (
-          <div className="flex flex-col items-center justify-center flex-1 py-4 gap-2">
-            <Trophy className="w-8 h-8 text-brm-accent/40" />
-            <span className="font-display text-[10px] uppercase tracking-wider text-brm-text-muted dark:text-gray-500 text-center">
-              {currentTournament?.format === "knockout" ? "Mata-Mata" : "Fase de Grupos + Mata-Mata"}
-            </span>
-          </div>
+          loadingBrazilTeams ? (
+            <div className="flex items-center justify-center py-4 flex-1">
+              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            <BrazilianTeamsView
+              entries={brazilianEntries}
+              onViewMatches={() => {
+                const params = new URLSearchParams();
+                if (currentTournament?.id) params.set("torneio", currentTournament.id);
+                router.push(`/partidas?${params.toString()}`);
+              }}
+            />
+          )
         ) : loadingStandings ? (
           <div className="flex items-center justify-center py-4 flex-1">
             <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
@@ -286,7 +487,7 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
             <ChevronRight className="w-4 h-4" />
           </span>
         </motion.button>
-      </div>
+      </motion.div>
     </FeatureTile>
   );
 }
