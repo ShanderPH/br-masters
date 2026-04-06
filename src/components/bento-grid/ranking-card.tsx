@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSwipeDrag } from "@/hooks/use-swipe-drag";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Trophy,
@@ -324,6 +325,8 @@ export function RankingCardWithData({
     setCurrentIndex((prev) => (prev - 1 + carouselItems.length) % carouselItems.length);
   }, [carouselItems.length]);
 
+  const { dragProps, isDraggingRef } = useSwipeDrag({ onNext: goToNext, onPrev: goToPrev });
+
   const handleNavigateToRanking = () => {
     const currentItem = carouselItems[currentIndex];
     if (currentItem?.type === "tournament") {
@@ -365,9 +368,9 @@ export function RankingCardWithData({
       subtitle={currentItem?.subtitle}
       colorTheme={isGeneralRanking ? "purple" : currentItem?.type === "round" ? "lime" : "blue"}
       delay={delay}
-      onClick={handleNavigateToRanking}
+      onClick={() => { if (!isDraggingRef.current) handleNavigateToRanking(); }}
     >
-      <div className="flex flex-col h-full">
+      <motion.div className="flex flex-col h-full" {...dragProps}>
         <div className="flex items-center justify-between mb-2 shrink-0">
           <div className="flex items-center gap-2">
             {currentItem?.logo ? (
@@ -486,7 +489,7 @@ export function RankingCardWithData({
             </span>
           </motion.button>
         </div>
-      </div>
+      </motion.div>
     </VerticalTile>
   );
 }

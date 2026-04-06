@@ -44,6 +44,7 @@ interface PartidasClientProps {
   upcomingMatches: MatchData[];
   finishedMatches: MatchData[];
   initialPredictions: PredictionMap;
+  brazilianTeamIds: string[];
 }
 
 export function PartidasClient({
@@ -53,6 +54,7 @@ export function PartidasClient({
   upcomingMatches,
   finishedMatches,
   initialPredictions,
+  brazilianTeamIds,
 }: PartidasClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -74,21 +76,68 @@ export function PartidasClient({
     [seasons, selectedTournamentId]
   );
 
-  useEffect(() => {
-    if (selectedTournamentId && !selectedRound && currentSeason?.current_round_number) {
-      setSelectedRound(currentSeason.current_round_number);
-    }
-  }, [selectedTournamentId, currentSeason, selectedRound]);
-
-  const allMatches = useMemo(
+  const allMatchesMemo = useMemo(
     () => [...upcomingMatches, ...finishedMatches],
     [upcomingMatches, finishedMatches]
   );
 
+  const computedCurrentRound = useMemo(() => {
+    if (!selectedTournamentId) return null;
+    const tournamentMatches = allMatchesMemo.filter((m) => m.tournament_id === selectedTournamentId);
+    if (tournamentMatches.length === 0) return currentSeason?.current_round_number ?? null;
+
+    const roundStats = new Map<number, { total: number; finished: number; live: number; scheduled: number }>();
+    for (const m of tournamentMatches) {
+      if (m.round_number === null) continue;
+      const rn = m.round_number;
+      if (!roundStats.has(rn)) roundStats.set(rn, { total: 0, finished: 0, live: 0, scheduled: 0 });
+      const s = roundStats.get(rn)!;
+      s.total++;
+      if (m.status === "finished") s.finished++;
+      else if (m.status === "live") s.live++;
+      else if (m.status === "scheduled") s.scheduled++;
+    }
+
+    const sortedRounds = Array.from(roundStats.keys()).sort((a, b) => a - b);
+    if (sortedRounds.length === 0) return currentSeason?.current_round_number ?? null;
+
+    let current = sortedRounds[0];
+    for (const rn of sortedRounds) {
+      const s = roundStats.get(rn)!;
+      if (s.live > 0) { current = rn; break; }
+      if (s.scheduled > 0 && s.finished < s.total) { current = rn; break; }
+      if (s.finished === s.total) current = rn + 1;
+    }
+    const maxRound = Math.max(...sortedRounds);
+    return Math.min(current, maxRound);
+  }, [selectedTournamentId, allMatchesMemo, currentSeason]);
+
+  useEffect(() => {
+    if (selectedTournamentId && !selectedRound && computedCurrentRound) {
+      setSelectedRound(computedCurrentRound);
+    }
+  }, [selectedTournamentId, computedCurrentRound, selectedRound]);
+
+  const allMatches = allMatchesMemo;
+
+  const selectedTournament = useMemo(
+    () => tournaments.find((t) => t.id === selectedTournamentId) || null,
+    [tournaments, selectedTournamentId]
+  );
+
+  const brazilianTeamSet = useMemo(() => new Set(brazilianTeamIds), [brazilianTeamIds]);
+
   const filteredByTournament = useMemo(() => {
-    if (!selectedTournamentId) return allMatches;
-    return allMatches.filter((m) => m.tournament_id === selectedTournamentId);
-  }, [allMatches, selectedTournamentId]);
+    const byTournament = !selectedTournamentId
+      ? allMatches
+      : allMatches.filter((m) => m.tournament_id === selectedTournamentId);
+
+    if (!selectedTournament?.filter_brazil_only) return byTournament;
+
+    return byTournament.filter(
+      (m) => brazilianTeamSet.has(m.home_team_id) || brazilianTeamSet.has(m.away_team_id)
+    );
+  }, [allMatches, selectedTournamentId, selectedTournament, brazilianTeamSet]);
 
   const availableRounds = useMemo(() => {
     const roundsMap = new Map<number, string | null>();

@@ -240,7 +240,7 @@ const PredictionCard = ({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <div className="relative w-8 h-8 sm:w-10 sm:h-10 shrink-0">
-              <Image src={homeLogo} alt={match.homeTeamName} fill className="object-contain" />
+              <Image src={homeLogo} alt={match.homeTeamName} fill unoptimized className="object-contain" onError={(e) => { (e.target as HTMLImageElement).src = "/images/logo/waiting.svg"; }} />
             </div>
             <span className="font-display font-bold text-xs sm:text-sm text-brm-text-primary uppercase truncate">
               {match.homeTeamShortName || match.homeTeamName.split(" ")[0]}
@@ -273,7 +273,7 @@ const PredictionCard = ({
               {match.awayTeamShortName || match.awayTeamName.split(" ")[0]}
             </span>
             <div className="relative w-8 h-8 sm:w-10 sm:h-10 shrink-0">
-              <Image src={awayLogo} alt={match.awayTeamName} fill className="object-contain" />
+              <Image src={awayLogo} alt={match.awayTeamName} fill unoptimized className="object-contain" onError={(e) => { (e.target as HTMLImageElement).src = "/images/logo/waiting.svg"; }} />
             </div>
           </div>
         </div>

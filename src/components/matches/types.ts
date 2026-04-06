@@ -6,6 +6,7 @@ export interface MatchTournament {
   format: string;
   has_rounds: boolean;
   sofascore_id: number | null;
+  filter_brazil_only?: boolean;
 }
 
 export interface MatchSeason {

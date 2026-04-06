@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSwipeDrag } from "@/hooks/use-swipe-drag";
 import { Tabs } from "@heroui/react";
 import { ChevronLeft, ChevronRight, Loader2, ShieldCheck, Target, Trophy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -158,6 +159,10 @@ export function UserStatsCard({
   onSelectView,
   onMoveView,
 }: UserStatsCardProps) {
+  const goToNext = useCallback(() => onMoveView(1), [onMoveView]);
+  const goToPrev = useCallback(() => onMoveView(-1), [onMoveView]);
+  const { dragProps } = useSwipeDrag({ onNext: goToNext, onPrev: goToPrev });
+
   if (isLoading) {
     return (
       <div className="relative h-full w-full overflow-hidden">
@@ -175,7 +180,7 @@ export function UserStatsCard({
     <div className="relative h-full w-full overflow-hidden">
       <StatsBackground view={stats.view} />
 
-      <div className="absolute inset-0 z-10 flex flex-col">
+      <motion.div className="absolute inset-0 z-10 flex flex-col" {...dragProps}>
         {/* Header: Tabs + Navigation */}
         <div className="flex shrink-0 items-center justify-between gap-2 px-2 pt-2 sm:px-3 sm:pt-3">
           <Tabs
@@ -318,7 +323,7 @@ export function UserStatsCard({
             </div>
           </motion.div>
         </AnimatePresence>
-      </div>
+      </motion.div>
     </div>
   );
 }
