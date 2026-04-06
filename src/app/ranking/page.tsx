@@ -19,6 +19,7 @@ export default async function RankingPage() {
   type GenProfileRow = { id: string; first_name: string; last_name: string | null; total_points: number; predictions_count: number };
   type TournamentRow = { id: string; name: string; slug: string; logo_url: string | null };
   type TPRow = { user_id: string; points_earned: number; matches: { tournament_id: string } };
+  type RoundTPRow = { user_id: string; points_earned: number; matches: { tournament_id: string; round_number: number | null } };
 
   const [
     userRowResult,
@@ -26,6 +27,7 @@ export default async function RankingPage() {
     generalProfilesResult,
     tournamentsResult,
     tournamentPredsResult,
+    roundPredsResult,
   ] = await Promise.all([
     supabase
       .from("users")
@@ -55,6 +57,11 @@ export default async function RankingPage() {
       .from("predictions")
       .select("user_id, points_earned, matches!inner(tournament_id)")
       .gt("points_earned", 0),
+
+    (process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase)
+      .from("predictions")
+      .select("user_id, points_earned, matches!inner(tournament_id, round_number)")
+      .gt("points_earned", 0),
   ]);
 
   const userRow = userRowResult.data;
@@ -69,6 +76,7 @@ export default async function RankingPage() {
   const genProfiles = (generalProfilesResult.data as GenProfileRow[] | null) || [];
   const tournamentsList = (tournamentsResult.data as TournamentRow[] | null) || [];
   const tpRows = (tournamentPredsResult.data as TPRow[] | null) || [];
+  const roundTpRows = (roundPredsResult.data as RoundTPRow[] | null) || [];
 
   const allGenUserIds = genProfiles.map((p) => p.id);
   const genTeamsMap: Map<string, string | null> = new Map();
@@ -182,6 +190,48 @@ export default async function RankingPage() {
     });
   });
 
+  // Build per-round rankings: roundRankings[tournamentId][roundNumber] = players[]
+  // roundPointsAgg: tournamentId → roundNumStr → userId → totalPoints
+  const roundPointsAgg = new Map<string, Map<string, Map<string, number>>>();
+  roundTpRows.forEach((rp) => {
+    const tId = rp.matches.tournament_id;
+    const rNum = rp.matches.round_number;
+    if (rNum === null || rNum === undefined) return;
+    const rKey = String(rNum);
+    if (!roundPointsAgg.has(tId)) roundPointsAgg.set(tId, new Map());
+    const byRound = roundPointsAgg.get(tId)!;
+    if (!byRound.has(rKey)) byRound.set(rKey, new Map());
+    const byUser = byRound.get(rKey)!;
+    byUser.set(rp.user_id, (byUser.get(rp.user_id) || 0) + (rp.points_earned || 0));
+  });
+
+  const roundRankings: Record<string, Record<number, Array<{
+    id: string; name: string; points: number; predictions: number;
+    exactScores: number; accuracy: number; favoriteTeamLogo: string | null;
+  }>>> = {};
+
+  roundPointsAgg.forEach((byRound, tId) => {
+    roundRankings[tId] = {};
+    byRound.forEach((byUser, rKey) => {
+      const rNum = Number(rKey);
+      const entries = [...byUser.entries()]
+        .filter(([, pts]) => pts > 0)
+        .sort(([, a], [, b]) => b - a);
+      roundRankings[tId][rNum] = entries.map(([userId, pts]) => {
+        const gp = genProfileMap.get(userId);
+        return {
+          id: userId,
+          name: gp ? `${gp.first_name}${gp.last_name ? ` ${gp.last_name}` : ""}` : "Jogador",
+          points: pts,
+          predictions: gp?.predictions_count || 0,
+          exactScores: 0,
+          accuracy: 0,
+          favoriteTeamLogo: genTeamsMap.get(userId) ?? null,
+        };
+      });
+    });
+  });
+
   const tournamentsWithData = tournamentsList.filter((t) =>
     tournamentRankings[t.id]?.length > 0
   );
@@ -197,6 +247,7 @@ export default async function RankingPage() {
       user={userData}
       generalRanking={formattedGeneralRanking}
       tournamentRankings={tournamentRankings}
+      roundRankings={roundRankings}
       tournaments={formattedTournaments}
     />
   );

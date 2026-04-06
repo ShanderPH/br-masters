@@ -13,6 +13,8 @@ import {
   TrendingDown,
   Minus,
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import { Navbar } from "@/components/layout";
@@ -46,10 +48,21 @@ interface TournamentTab {
   logo: string;
 }
 
+interface RoundRankingPlayer {
+  id: string;
+  name: string;
+  points: number;
+  predictions: number;
+  exactScores: number;
+  accuracy: number;
+  favoriteTeamLogo: string | null;
+}
+
 interface RankingClientProps {
   user: RankingUser;
   generalRanking: RankingPlayer[];
   tournamentRankings: Record<string, RankingPlayer[]>;
+  roundRankings?: Record<string, Record<number, RoundRankingPlayer[]>>;
   tournaments?: TournamentTab[];
 }
 
@@ -96,10 +109,12 @@ export function RankingClient({
   user,
   generalRanking,
   tournamentRankings,
+  roundRankings = {},
   tournaments = [],
 }: RankingClientProps) {
   const router = useRouter();
   const [selectedFilter, setSelectedFilter] = useState("all");
+  const [selectedRound, setSelectedRound] = useState<number | null>(null);
 
   const handleLogout = async () => {
     await signOut();
@@ -107,12 +122,27 @@ export function RankingClient({
     router.refresh();
   };
 
-  const currentRanking: RankingPlayer[] =
+  const isTournamentView = selectedFilter !== "all";
+
+  // Available rounds for selected tournament
+  const availableRounds: number[] = isTournamentView
+    ? Object.keys(roundRankings[selectedFilter] || {})
+        .map(Number)
+        .sort((a, b) => a - b)
+    : [];
+
+  // When switching tournament, reset round selection
+  const handleFilterChange = (filterId: string) => {
+    setSelectedFilter(filterId);
+    setSelectedRound(null);
+  };
+
+  const currentRanking: RankingPlayer[] | RoundRankingPlayer[] =
     selectedFilter === "all"
       ? generalRanking
-      : tournamentRankings[selectedFilter] || [];
-
-  const isTournamentView = selectedFilter !== "all";
+      : selectedRound !== null
+        ? (roundRankings[selectedFilter]?.[selectedRound] || [])
+        : tournamentRankings[selectedFilter] || [];
 
   const top3 = currentRanking.slice(0, 3);
 
@@ -173,10 +203,10 @@ export function RankingClient({
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="flex gap-2 mb-6 overflow-x-auto no-scrollbar pb-1"
+            className="flex gap-2 mb-3 overflow-x-auto no-scrollbar pb-1"
           >
             <button
-              onClick={() => setSelectedFilter("all")}
+              onClick={() => handleFilterChange("all")}
               className={`
                 flex items-center gap-2 px-4 py-2 -skew-x-6 whitespace-nowrap
                 font-display font-bold text-xs uppercase tracking-wide
@@ -195,7 +225,7 @@ export function RankingClient({
             {tournaments.map((t) => (
               <button
                 key={t.id}
-                onClick={() => setSelectedFilter(t.id)}
+                onClick={() => handleFilterChange(t.id)}
                 className={`
                   flex items-center gap-2 px-4 py-2 -skew-x-6 whitespace-nowrap
                   font-display font-bold text-xs uppercase tracking-wide
@@ -215,9 +245,128 @@ export function RankingClient({
             ))}
           </motion.div>
 
+          {/* Round selector — only shown for tournament views */}
+          {isTournamentView && availableRounds.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+              className="mb-5"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="font-display text-[10px] text-brm-text-muted uppercase tracking-widest">
+                  Rodada
+                </span>
+                <div className="h-px flex-1 bg-white/5" />
+              </div>
+
+              {/* Mobile: prev/next arrows with current round */}
+              <div className="flex sm:hidden items-center justify-between mb-2">
+                <button
+                  onClick={() => {
+                    if (selectedRound === null) return;
+                    const idx = availableRounds.indexOf(selectedRound);
+                    if (idx > 0) setSelectedRound(availableRounds[idx - 1]);
+                  }}
+                  disabled={selectedRound === null || availableRounds.indexOf(selectedRound) === 0}
+                  className="p-1.5 -skew-x-6 transition-colors disabled:opacity-30 hover:bg-white/10"
+                >
+                  <ChevronLeft className="w-4 h-4 text-brm-text-primary skew-x-6" />
+                </button>
+                <span className="font-display font-bold text-sm uppercase italic text-brm-text-primary">
+                  {selectedRound === null ? "Todas as rodadas" : `Rodada ${selectedRound}`}
+                </span>
+                <button
+                  onClick={() => {
+                    if (selectedRound === null) {
+                      setSelectedRound(availableRounds[0]);
+                      return;
+                    }
+                    const idx = availableRounds.indexOf(selectedRound);
+                    if (idx < availableRounds.length - 1) setSelectedRound(availableRounds[idx + 1]);
+                  }}
+                  disabled={selectedRound !== null && availableRounds.indexOf(selectedRound) === availableRounds.length - 1}
+                  className="p-1.5 -skew-x-6 transition-colors disabled:opacity-30 hover:bg-white/10"
+                >
+                  <ChevronRight className="w-4 h-4 text-brm-text-primary skew-x-6" />
+                </button>
+              </div>
+
+              {/* Desktop: pill buttons for all rounds */}
+              <div className="hidden sm:flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setSelectedRound(null)}
+                  className={`
+                    px-3 py-1 font-display font-bold text-[10px] uppercase -skew-x-6 transition-all
+                    ${selectedRound === null
+                      ? "bg-brm-primary text-white"
+                      : "bg-white/5 text-brm-text-muted hover:bg-white/10"
+                    }
+                  `}
+                >
+                  <span className="skew-x-6">Todas</span>
+                </button>
+                {availableRounds.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setSelectedRound(r)}
+                    className={`
+                      w-9 h-8 flex items-center justify-center
+                      font-display font-bold text-xs -skew-x-6 transition-all
+                      ${selectedRound === r
+                        ? "bg-brm-primary text-white"
+                        : "bg-white/5 text-brm-text-muted hover:bg-white/10"
+                      }
+                    `}
+                  >
+                    <span className="skew-x-6">{r}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Mobile: all rounds compact scroll */}
+              <div className="flex sm:hidden gap-1 overflow-x-auto no-scrollbar pb-1">
+                <button
+                  onClick={() => setSelectedRound(null)}
+                  className={`
+                    shrink-0 px-3 py-1 font-display font-bold text-[10px] uppercase -skew-x-6 transition-all
+                    ${selectedRound === null
+                      ? "bg-brm-primary text-white"
+                      : "bg-white/5 text-brm-text-muted hover:bg-white/10"
+                    }
+                  `}
+                >
+                  <span className="skew-x-6">Todas</span>
+                </button>
+                {availableRounds.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setSelectedRound(r)}
+                    className={`
+                      shrink-0 w-9 h-7 flex items-center justify-center
+                      font-display font-bold text-xs -skew-x-6 transition-all
+                      ${selectedRound === r
+                        ? "bg-brm-primary text-white"
+                        : "bg-white/5 text-brm-text-muted hover:bg-white/10"
+                      }
+                    `}
+                  >
+                    <span className="skew-x-6">{r}</span>
+                  </button>
+                ))}
+              </div>
+
+              {selectedRound !== null && (
+                <p className="font-display text-[9px] text-brm-text-muted uppercase tracking-wider mt-1.5">
+                  Pontos acumulados na rodada {selectedRound}
+                </p>
+              )}
+            </motion.div>
+          )}
+
           <AnimatePresence mode="wait">
             <motion.div
-              key={selectedFilter}
+              key={`${selectedFilter}-${selectedRound ?? "all"}`}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
@@ -346,11 +495,11 @@ export function RankingClient({
                             </div>
                           </div>
 
-                          {isTournamentView && player.currentRank != null && (
+                          {isTournamentView && selectedRound === null && "currentRank" in player && player.currentRank != null && (
                             <div className="shrink-0">
                               <RankChangeIndicator
                                 current={player.currentRank}
-                                previous={player.previousRank}
+                                previous={"previousRank" in player ? player.previousRank : undefined}
                               />
                             </div>
                           )}
