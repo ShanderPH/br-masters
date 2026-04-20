@@ -33,7 +33,16 @@ const teamIdToFileName: Record<string, string> = {
     "1982": "coritiba",
     "21845": "chapecoense",
     "2012": "remo",
+    // Brasileirão Série B teams
+    "1960": "atletico-go",
+    "1956": "goias",
+    "10527": "crb",
+    "2009": "paysandu",
+    "9868": "operario-pr",
+    "37059": "athletic",
+    "15566": "jacuipense",
     // Libertadores / Copa Sul-Americana teams
+    "3197": "boca-juniors",
     "7059": "bolivar",
     "63760": "cusco",
     "3206": "estudiantes",
