@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { DashboardClient } from "./dashboard-client";
 import { ROUTES } from "@/lib/routes";
+import { getTeamLogoPath } from "@/lib/services/team-logo-service";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -200,12 +201,12 @@ export default async function DashboardPage() {
     homeTeam: {
       name: m.home_team_name,
       shortName: m.home_team_code || m.home_team_name.substring(0, 3).toUpperCase(),
-      logo: m.home_team_logo || undefined,
+      logo: m.home_team_logo || getTeamLogoPath(m.home_team_name),
     },
     awayTeam: {
       name: m.away_team_name,
       shortName: m.away_team_code || m.away_team_name.substring(0, 3).toUpperCase(),
-      logo: m.away_team_logo || undefined,
+      logo: m.away_team_logo || getTeamLogoPath(m.away_team_name),
     },
     startTime: m.start_time,
     status: m.status as "scheduled" | "live" | "finished",

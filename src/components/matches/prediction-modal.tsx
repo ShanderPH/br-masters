@@ -7,6 +7,7 @@ import { X, Minus, Plus } from "lucide-react";
 import { Button } from "@heroui/react";
 
 import type { EnrichedMatch } from "@/lib/supabase/types";
+import { getTeamLogoPath } from "@/lib/services/team-logo-service";
 
 interface PredictionModalProps {
   match: EnrichedMatch | null;
@@ -33,8 +34,7 @@ export function PredictionModal({
 
   const getTeamLogo = (teamName: string, teamLogo: string | null) => {
     if (teamLogo) return teamLogo;
-    const normalizedName = teamName.toLowerCase().replace(/\s+/g, "");
-    return `/images/logo/${normalizedName}.svg`;
+    return getTeamLogoPath(teamName);
   };
 
   const handleSubmit = async () => {
