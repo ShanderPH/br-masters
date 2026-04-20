@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
@@ -15,11 +16,15 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Share2,
 } from "lucide-react";
 
 import { Navbar } from "@/components/layout";
 import { DashboardBackground } from "@/components/dashboard";
 import { signOut } from "@/lib/auth/auth-service";
+import { ShareCard, type ShareCardData } from "@/components/ranking/share-card";
+import { useShareRanking } from "@/hooks/use-share-ranking";
+import { getTeamColors } from "@/lib/services/team-colors";
 
 interface RankingUser {
   id: string;
@@ -58,8 +63,34 @@ interface RoundRankingPlayer {
   favoriteTeamLogo: string | null;
 }
 
+interface UserContextStats {
+  points: number;
+  predictions: number;
+  exactScores: number;
+  correctPredictions: number;
+  accuracy: number;
+}
+
+interface CurrentUserStats {
+  general: UserContextStats;
+  tournaments: Record<string, UserContextStats>;
+  rounds: Record<string, Record<number, UserContextStats>>;
+}
+
+interface FavoriteTeam {
+  id: string;
+  name: string;
+  slug: string;
+  primaryColor: string | null;
+  secondaryColor: string | null;
+  logoUrl: string | null;
+}
+
 interface RankingClientProps {
   user: RankingUser;
+  currentUserAuthId: string;
+  currentUserTeam: FavoriteTeam | null;
+  currentUserStats: CurrentUserStats;
   generalRanking: RankingPlayer[];
   tournamentRankings: Record<string, RankingPlayer[]>;
   roundRankings?: Record<string, Record<number, RoundRankingPlayer[]>>;
@@ -107,6 +138,9 @@ function handleImageError(e: React.SyntheticEvent<HTMLImageElement>) {
 
 export function RankingClient({
   user,
+  currentUserAuthId,
+  currentUserTeam,
+  currentUserStats,
   generalRanking,
   tournamentRankings,
   roundRankings = {},
@@ -115,6 +149,10 @@ export function RankingClient({
   const router = useRouter();
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
+
+  const shareCardRef = useRef<HTMLDivElement>(null);
+  const [shareCardData, setShareCardData] = useState<ShareCardData | null>(null);
+  const { captureAndShare, fetchLogoAsDataUrl, isGenerating: isGeneratingShare } = useShareRanking();
 
   const handleLogout = async () => {
     await signOut();
@@ -143,6 +181,85 @@ export function RankingClient({
       : selectedRound !== null
         ? (roundRankings[selectedFilter]?.[selectedRound] || [])
         : tournamentRankings[selectedFilter] || [];
+
+  // Match against the auth UUID used by the rankings (not user.id, which may be firebase_id).
+  const currentUserIndex = currentRanking.findIndex((p) => p.id === currentUserAuthId);
+  const currentUserPosition = currentUserIndex >= 0 ? currentUserIndex + 1 : null;
+  const currentUserEntry = currentUserIndex >= 0 ? currentRanking[currentUserIndex] : null;
+
+  const filterLabel =
+    selectedFilter === "all"
+      ? "Ranking Geral"
+      : tournaments.find((t) => t.id === selectedFilter)?.name ?? "Ranking";
+  const roundLabel = selectedRound !== null ? `Rodada ${selectedRound}` : null;
+
+  // Resolve per-context stats for the share card.
+  const contextStats: UserContextStats =
+    selectedFilter === "all"
+      ? currentUserStats.general
+      : selectedRound !== null
+        ? currentUserStats.rounds[selectedFilter]?.[selectedRound] ?? {
+            points: 0,
+            predictions: 0,
+            exactScores: 0,
+            correctPredictions: 0,
+            accuracy: 0,
+          }
+        : currentUserStats.tournaments[selectedFilter] ?? {
+            points: 0,
+            predictions: 0,
+            exactScores: 0,
+            correctPredictions: 0,
+            accuracy: 0,
+          };
+
+  const teamColors = getTeamColors(
+    currentUserTeam?.name,
+    currentUserTeam?.slug,
+    currentUserTeam?.primaryColor,
+    currentUserTeam?.secondaryColor
+  );
+
+  const handleShare = async () => {
+    if (isGeneratingShare) return;
+
+    const name = currentUserEntry?.name ?? user.name;
+    // Position: use found index; fall back to end of ranking if user is not listed.
+    const position = currentUserPosition ?? currentRanking.length + 1;
+
+    // Points & derived stats come from the per-context stats map (always accurate
+    // for the currently selected tab/round), not from the ranking row.
+    const points = contextStats.points;
+    const predictions = contextStats.predictions;
+    const exactScores = contextStats.exactScores;
+    const accuracy = contextStats.accuracy;
+
+    // Prefer the ranking row's logo URL (matches the displayed avatar); fall back
+    // to the user's team logo.
+    const logoUrl = currentUserEntry?.favoriteTeamLogo ?? currentUserTeam?.logoUrl ?? null;
+    const logoDataUrl = logoUrl ? await fetchLogoAsDataUrl(logoUrl) : null;
+
+    flushSync(() => {
+      setShareCardData({
+        userName: name,
+        position,
+        points,
+        predictions,
+        exactScores,
+        accuracy,
+        teamLogoDataUrl: logoDataUrl,
+        filterLabel,
+        roundLabel,
+        teamColors,
+      });
+    });
+
+    if (shareCardRef.current) {
+      await captureAndShare(shareCardRef.current);
+    }
+
+    setShareCardData(null);
+  };
 
   const top3 = currentRanking.slice(0, 3);
 
@@ -188,7 +305,7 @@ export function RankingClient({
             >
               <ArrowLeft className="w-5 h-5 text-brm-text-primary skew-x-6" />
             </button>
-            <div>
+            <div className="flex-1">
               <h1 className="font-display font-black text-xl sm:text-2xl uppercase italic text-brm-text-primary flex items-center gap-2">
                 <Trophy className="w-6 h-6 text-brm-secondary" />
                 Ranking
@@ -197,6 +314,18 @@ export function RankingClient({
                 Classificação dos melhores palpiteiros
               </p>
             </div>
+
+            <button
+              onClick={handleShare}
+              disabled={isGeneratingShare}
+              className="flex items-center gap-2 px-3 py-2 -skew-x-6 bg-brm-primary/20 border border-brm-primary/40 hover:bg-brm-primary/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              aria-label="Compartilhar meu ranking"
+            >
+              <Share2 className="w-4 h-4 text-brm-primary skew-x-6" />
+              <span className="font-display font-bold text-xs uppercase text-brm-primary skew-x-6 hidden sm:inline">
+                {isGeneratingShare ? "Gerando..." : "Compartilhar"}
+              </span>
+            </button>
           </motion.div>
 
           <motion.div
@@ -519,6 +648,14 @@ export function RankingClient({
             </motion.div>
           </AnimatePresence>
         </main>
+      </div>
+
+      {/* Off-screen share card — captured by html2canvas on share action */}
+      <div
+        aria-hidden="true"
+        style={{ position: "fixed", left: "-9999px", top: 0, zIndex: -1, pointerEvents: "none" }}
+      >
+        {shareCardData && <ShareCard ref={shareCardRef} {...shareCardData} />}
       </div>
     </div>
   );
