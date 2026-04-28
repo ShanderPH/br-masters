@@ -1378,6 +1378,10 @@ export interface Database {
         Args: Record<string, never>;
         Returns: string;
       };
+      set_matches_live_on_start: {
+        Args: { p_limit?: number };
+        Returns: number;
+      };
     };
     Enums: {
       match_status: MatchStatus;

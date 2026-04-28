@@ -50,14 +50,17 @@ interface PredictionMatch {
 interface Prediction {
   id: string;
   matchId: string;
-  homeTeamGoals: number;
-  awayTeamGoals: number;
-  pointsEarned: number;
-  isCorrect: boolean;
-  isExactScore: boolean;
   tournamentId: string;
   roundNumber: number;
-  predictedAt: string;
+  userPrediction: {
+    id: string;
+    homeTeamGoals: number;
+    awayTeamGoals: number;
+    pointsEarned: number;
+    isCorrect: boolean;
+    isExactScore: boolean;
+    predictedAt: string;
+  } | null;
   match: PredictionMatch;
 }
 
@@ -88,9 +91,21 @@ interface PalpitesClientProps {
 }
 
 const ResultBadge = ({ prediction }: { prediction: Prediction }) => {
-  const isFinished = prediction.match.status === "finished";
+  const ownPrediction = prediction.userPrediction;
+  const isRevealed =
+    prediction.match.status === "live" || prediction.match.status === "finished";
 
-  if (!isFinished) {
+  if (!ownPrediction) {
+    return (
+      <div className="flex items-center gap-1 px-2 py-0.5 bg-white/5 -skew-x-6">
+        <span className="text-[10px] font-display font-bold text-brm-text-muted uppercase skew-x-6">
+          Sem Palpite
+        </span>
+      </div>
+    );
+  }
+
+  if (!isRevealed) {
     return (
       <div className="flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 -skew-x-6">
         <Clock className="w-3 h-3 text-yellow-400 skew-x-6" />
@@ -101,23 +116,23 @@ const ResultBadge = ({ prediction }: { prediction: Prediction }) => {
     );
   }
 
-  if (prediction.isExactScore) {
+  if (ownPrediction.isExactScore) {
     return (
       <div className="flex items-center gap-1 px-2 py-0.5 bg-brm-secondary/20 -skew-x-6">
         <Star className="w-3 h-3 text-brm-secondary skew-x-6" />
         <span className="text-[10px] font-display font-bold text-brm-secondary uppercase skew-x-6">
-          Exato! +{prediction.pointsEarned}
+          Exato! +{ownPrediction.pointsEarned}
         </span>
       </div>
     );
   }
 
-  if (prediction.isCorrect) {
+  if (ownPrediction.isCorrect) {
     return (
       <div className="flex items-center gap-1 px-2 py-0.5 bg-green-500/20 -skew-x-6">
         <CheckCircle2 className="w-3 h-3 text-green-400 skew-x-6" />
         <span className="text-[10px] font-display font-bold text-green-400 uppercase skew-x-6">
-          Acertou +{prediction.pointsEarned}
+          Acertou +{ownPrediction.pointsEarned}
         </span>
       </div>
     );
@@ -135,9 +150,11 @@ const ResultBadge = ({ prediction }: { prediction: Prediction }) => {
 
 const OtherUserPredictionRow = ({
   pred,
+  isRevealed,
   isFinished,
 }: {
   pred: OtherPrediction;
+  isRevealed: boolean;
   isFinished: boolean;
 }) => {
   const getBadgeColor = () => {
@@ -159,7 +176,7 @@ const OtherUserPredictionRow = ({
       <span className="flex-1 font-display font-bold text-[10px] sm:text-xs text-brm-text-primary uppercase truncate">
         {pred.userName}
       </span>
-      {isFinished ? (
+      {isRevealed ? (
         <>
           <div className="flex items-center gap-1 px-2 py-0.5 bg-white/5 -skew-x-6">
             <span className={`font-display font-black text-xs skew-x-6 ${getBadgeColor()}`}>
@@ -194,6 +211,8 @@ const PredictionCard = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const match = prediction.match;
   const isFinished = match.status === "finished";
+  const isRevealed = match.status === "live" || match.status === "finished";
+  const ownPrediction = prediction.userPrediction;
   const matchDate = new Date(match.startTime);
   const othersCount = otherPredictions.length;
 
@@ -212,10 +231,12 @@ const PredictionCard = ({
         relative
         bg-brm-card/80 border border-white/5
         hover:border-white/10 transition-all duration-200
-        ${prediction.isExactScore ? "border-l-4 border-l-brm-secondary" : ""}
-        ${prediction.isCorrect && !prediction.isExactScore ? "border-l-4 border-l-green-500" : ""}
-        ${isFinished && !prediction.isCorrect ? "border-l-4 border-l-red-500/50" : ""}
-        ${!isFinished ? "border-l-4 border-l-yellow-500/50" : ""}
+        ${ownPrediction?.isExactScore ? "border-l-4 border-l-brm-secondary" : ""}
+        ${ownPrediction?.isCorrect && !ownPrediction?.isExactScore ? "border-l-4 border-l-green-500" : ""}
+        ${isFinished && ownPrediction && !ownPrediction.isCorrect ? "border-l-4 border-l-red-500/50" : ""}
+        ${!isFinished && isRevealed ? "border-l-4 border-l-yellow-500/50" : ""}
+        ${!isRevealed ? "border-l-4 border-l-gray-500/40" : ""}
+        ${!ownPrediction ? "border-l-4 border-l-white/20" : ""}
       `}
     >
       <button
@@ -248,15 +269,23 @@ const PredictionCard = ({
           </div>
 
           <div className="flex flex-col items-center gap-0.5 shrink-0">
-            <div className="flex items-center gap-1.5 px-3 py-1 bg-brm-primary/10 -skew-x-6">
-              <span className="font-display font-black text-base sm:text-lg text-brm-primary skew-x-6">
-                {prediction.homeTeamGoals}
-              </span>
-              <span className="text-xs text-gray-500 font-bold skew-x-6">×</span>
-              <span className="font-display font-black text-base sm:text-lg text-brm-primary skew-x-6">
-                {prediction.awayTeamGoals}
-              </span>
-            </div>
+            {ownPrediction ? (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-brm-primary/10 -skew-x-6">
+                <span className="font-display font-black text-base sm:text-lg text-brm-primary skew-x-6">
+                  {ownPrediction.homeTeamGoals}
+                </span>
+                <span className="text-xs text-gray-500 font-bold skew-x-6">×</span>
+                <span className="font-display font-black text-base sm:text-lg text-brm-primary skew-x-6">
+                  {ownPrediction.awayTeamGoals}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 -skew-x-6">
+                <span className="font-display font-black text-xs sm:text-sm text-brm-text-muted skew-x-6 uppercase">
+                  Não Palpitado
+                </span>
+              </div>
+            )}
 
             {isFinished && match.homeScore !== null && match.awayScore !== null && (
               <div className="flex items-center gap-1 text-[10px] text-brm-text-muted font-display">
@@ -310,10 +339,10 @@ const PredictionCard = ({
                   <span className="font-display text-[9px] text-brm-text-muted uppercase tracking-wider">
                     Palpites dos jogadores
                   </span>
-                  {!isFinished && (
+                  {!isRevealed && (
                     <span className="ml-auto flex items-center gap-1">
                       <Lock className="w-2.5 h-2.5 text-yellow-500/60" />
-                      <span className="font-display text-[8px] text-yellow-500/60 uppercase">Aguardando resultado</span>
+                      <span className="font-display text-[8px] text-yellow-500/60 uppercase">Libera ao vivo</span>
                     </span>
                   )}
                 </div>
@@ -322,6 +351,7 @@ const PredictionCard = ({
                     <OtherUserPredictionRow
                       key={op.oddsUserId}
                       pred={op}
+                      isRevealed={isRevealed}
                       isFinished={isFinished}
                     />
                   ))}
@@ -381,9 +411,9 @@ export function PalpitesClient({
   const stats = useMemo(() => {
     const total = roundPredictions.length;
     const finished = roundPredictions.filter((p) => p.match.status === "finished");
-    const correct = finished.filter((p) => p.isCorrect).length;
-    const exact = finished.filter((p) => p.isExactScore).length;
-    const points = roundPredictions.reduce((sum, p) => sum + p.pointsEarned, 0);
+    const correct = finished.filter((p) => p.userPrediction?.isCorrect).length;
+    const exact = finished.filter((p) => p.userPrediction?.isExactScore).length;
+    const points = roundPredictions.reduce((sum, p) => sum + (p.userPrediction?.pointsEarned || 0), 0);
     return { total, correct, exact, points, finishedCount: finished.length };
   }, [roundPredictions]);
 
@@ -447,10 +477,10 @@ export function PalpitesClient({
             <div>
               <h1 className="font-display font-black text-xl sm:text-2xl uppercase italic text-brm-text-primary flex items-center gap-2">
                 <Target className="w-6 h-6 text-brm-primary" />
-                Meus Palpites
+                Palpites da Comunidade
               </h1>
               <p className="font-display text-xs text-brm-text-muted uppercase tracking-wider">
-                Histórico de palpites realizados
+                Seus palpites e visibilidade global por partida
               </p>
             </div>
           </motion.div>
