@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { PalpitesClient } from "./palpites-client";
 
 export default async function PalpitesPage() {
@@ -24,6 +24,17 @@ export default async function PalpitesPage() {
     home_team_goals: number;
     away_team_goals: number;
     points_earned: number;
+    is_correct_result: boolean | null;
+    is_exact_score: boolean | null;
+    predicted_at: string;
+  };
+
+  type VisiblePredictionRow = {
+    user_id: string;
+    match_id: string;
+    home_team_goals: number;
+    away_team_goals: number;
+    points_earned: number | null;
     is_correct_result: boolean | null;
     is_exact_score: boolean | null;
     predicted_at: string;
@@ -81,8 +92,6 @@ export default async function PalpitesPage() {
     }
   });
 
-  const matchIds = predictionRows.map((p) => p.match_id);
-
   type MatchDataRow = {
     id: string;
     round_number: number | null;
@@ -93,60 +102,70 @@ export default async function PalpitesPage() {
     home_score: number | null;
     away_score: number | null;
     tournament_id: string;
+    home_team: { name: string; name_code: string | null; logo_url: string | null } | null;
+    away_team: { name: string; name_code: string | null; logo_url: string | null } | null;
   };
 
-  let matchesData: MatchDataRow[] = [];
+  const activeTournamentIds = new Set(tournamentsList.map((t) => String(t.id)));
+  const activeTournamentIdsList = Array.from(activeTournamentIds);
 
-  if (matchIds.length > 0) {
+  let matchesData: MatchDataRow[] = [];
+  if (activeTournamentIdsList.length > 0) {
     const { data: mData } = await supabase
       .from("matches")
-      .select("id, round_number, home_team_id, away_team_id, start_time, status, home_score, away_score, tournament_id")
-      .in("id", matchIds);
-
-    matchesData = (mData as MatchDataRow[]) || [];
+      .select("id, round_number, home_team_id, away_team_id, start_time, status, home_score, away_score, tournament_id, home_team:teams!matches_home_team_id_fkey(name, name_code, logo_url), away_team:teams!matches_away_team_id_fkey(name, name_code, logo_url)")
+      .in("tournament_id", activeTournamentIdsList);
+    matchesData = (mData as MatchDataRow[] | null) || [];
   }
 
-  const allTeamIds = [...new Set(matchesData.flatMap((m) => [m.home_team_id, m.away_team_id]))];
-  let teamsMap: Map<string, { name: string; name_code: string; logo_url: string | null }> = new Map();
-  if (allTeamIds.length > 0) {
-    const { data: teamsData } = await supabase
-      .from("teams")
-      .select("id, name, name_code, logo_url")
-      .in("id", allTeamIds);
-    type TeamRow = { id: string; name: string; name_code: string; logo_url: string | null };
-    const teamRows = (teamsData as TeamRow[] | null) || [];
-    teamsMap = new Map(teamRows.map((t) => [t.id, { name: t.name, name_code: t.name_code, logo_url: t.logo_url }]));
+  const matchIds = matchesData.map((m) => m.id);
+  let visiblePredictionRows: VisiblePredictionRow[] = [];
+
+  if (matchIds.length > 0) {
+    const { data: visiblePreds } = await supabase
+      .from("predictions")
+      .select("user_id, match_id, home_team_goals, away_team_goals, points_earned, is_correct_result, is_exact_score, predicted_at")
+      .in("match_id", matchIds)
+      .order("predicted_at", { ascending: false });
+
+    visiblePredictionRows = (visiblePreds as VisiblePredictionRow[] | null) || [];
   }
 
+  const discoverableMatchIds = new Set(visiblePredictionRows.map((p) => String(p.match_id)));
   const matchMap = new Map(matchesData.map((m) => [String(m.id), m]));
+  const myPredictionsByMatch = new Map(predictionRows.map((p) => [String(p.match_id), p]));
 
-  const formattedPredictions = predictionRows
-    .map((p) => {
-      const match = matchMap.get(String(p.match_id));
+  const formattedPredictions = Array.from(discoverableMatchIds)
+    .map((matchId) => {
+      const match = matchMap.get(matchId);
       if (!match) return null;
 
-      const homeTeam = teamsMap.get(match.home_team_id);
-      const awayTeam = teamsMap.get(match.away_team_id);
+      const ownPrediction = myPredictionsByMatch.get(matchId);
 
       return {
-        id: p.id,
-        matchId: String(p.match_id),
-        homeTeamGoals: p.home_team_goals,
-        awayTeamGoals: p.away_team_goals,
-        pointsEarned: p.points_earned || 0,
-        isCorrect: p.is_correct_result || false,
-        isExactScore: p.is_exact_score || false,
+        id: match.id,
+        matchId,
+        userPrediction: ownPrediction
+          ? {
+              id: ownPrediction.id,
+              homeTeamGoals: ownPrediction.home_team_goals,
+              awayTeamGoals: ownPrediction.away_team_goals,
+              pointsEarned: ownPrediction.points_earned || 0,
+              isCorrect: ownPrediction.is_correct_result || false,
+              isExactScore: ownPrediction.is_exact_score || false,
+              predictedAt: ownPrediction.predicted_at,
+            }
+          : null,
         tournamentId: String(match.tournament_id),
         roundNumber: match.round_number || 0,
-        predictedAt: p.predicted_at,
         match: {
           id: match.id,
-          homeTeamName: homeTeam?.name || "TBD",
-          homeTeamShortName: homeTeam?.name_code || null,
-          homeTeamLogo: homeTeam?.logo_url || null,
-          awayTeamName: awayTeam?.name || "TBD",
-          awayTeamShortName: awayTeam?.name_code || null,
-          awayTeamLogo: awayTeam?.logo_url || null,
+          homeTeamName: match.home_team?.name || "TBD",
+          homeTeamShortName: match.home_team?.name_code || null,
+          homeTeamLogo: match.home_team?.logo_url || null,
+          awayTeamName: match.away_team?.name || "TBD",
+          awayTeamShortName: match.away_team?.name_code || null,
+          awayTeamLogo: match.away_team?.logo_url || null,
           startTime: match.start_time,
           status: match.status,
           homeScore: match.home_score,
@@ -154,17 +173,21 @@ export default async function PalpitesPage() {
         },
       };
     })
-    .filter(Boolean) as Array<{
+    .filter(Boolean)
+    .sort((a, b) => new Date(b!.match.startTime).getTime() - new Date(a!.match.startTime).getTime()) as Array<{
     id: string;
     matchId: string;
-    homeTeamGoals: number;
-    awayTeamGoals: number;
-    pointsEarned: number;
-    isCorrect: boolean;
-    isExactScore: boolean;
+    userPrediction: {
+      id: string;
+      homeTeamGoals: number;
+      awayTeamGoals: number;
+      pointsEarned: number;
+      isCorrect: boolean;
+      isExactScore: boolean;
+      predictedAt: string;
+    } | null;
     tournamentId: string;
     roundNumber: number;
-    predictedAt: string;
     match: {
       id: string;
       homeTeamName: string;
@@ -190,8 +213,6 @@ export default async function PalpitesPage() {
     xp: pr.xp || 0,
     role: ur.role as "user" | "admin",
   };
-
-  const activeTournamentIds = new Set(tournamentsList.map((t) => String(t.id)));
 
   const filteredPredictions = formattedPredictions.filter((p) =>
     activeTournamentIds.has(p.tournamentId)
@@ -226,25 +247,9 @@ export default async function PalpitesPage() {
   }> = [];
 
   if (allMatchIdsForOthers.length > 0) {
-    // Use service client to bypass RLS — scores are redacted below for non-finished matches
-    const serviceDb = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase;
-    const { data: otherPreds } = await serviceDb
-      .from("predictions")
-      .select("match_id, user_id, home_team_goals, away_team_goals, points_earned, is_correct_result, is_exact_score")
-      .in("match_id", allMatchIdsForOthers)
-      .neq("user_id", user.id);
-
-    type OtherPredRow = {
-      match_id: string;
-      user_id: string;
-      home_team_goals: number;
-      away_team_goals: number;
-      points_earned: number;
-      is_correct_result: boolean | null;
-      is_exact_score: boolean | null;
-    };
-
-    const otherPredRows = (otherPreds as OtherPredRow[] | null) || [];
+    const otherPredRows = visiblePredictionRows
+      .filter((p) => allMatchIdsForOthers.includes(String(p.match_id)))
+      .filter((p) => p.user_id !== user.id);
 
     if (otherPredRows.length > 0) {
       const otherUserIds = [...new Set(otherPredRows.map((p) => p.user_id))];
@@ -285,20 +290,17 @@ export default async function PalpitesPage() {
         const favTeamId = otherUsersMap.get(p.user_id);
         const teamLogo = favTeamId ? otherTeamsMap.get(favTeamId) ?? null : null;
         const name = prof ? `${prof.first_name}${prof.last_name ? ` ${prof.last_name}` : ""}` : "Jogador";
-        // Redact scores for non-finished matches to enforce business rule server-side
-        const match = matchMap.get(String(p.match_id));
-        const isFinished = match?.status === "finished";
 
         return {
           matchId: String(p.match_id),
           oddsUserId: p.user_id,
           userName: name,
           userTeamLogo: teamLogo,
-          homeTeamGoals: isFinished ? p.home_team_goals : 0,
-          awayTeamGoals: isFinished ? p.away_team_goals : 0,
-          pointsEarned: isFinished ? (p.points_earned || 0) : 0,
-          isCorrect: isFinished ? (p.is_correct_result || false) : false,
-          isExactScore: isFinished ? (p.is_exact_score || false) : false,
+          homeTeamGoals: p.home_team_goals,
+          awayTeamGoals: p.away_team_goals,
+          pointsEarned: p.points_earned || 0,
+          isCorrect: p.is_correct_result || false,
+          isExactScore: p.is_exact_score || false,
         };
       });
     }
