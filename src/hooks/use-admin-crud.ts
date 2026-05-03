@@ -20,6 +20,8 @@ interface ListParams {
   orderBy?: OrderBy;
   limit?: number;
   offset?: number;
+  includeDeleted?: boolean;
+  onlyDeleted?: boolean;
 }
 
 interface CrudResponse<T = unknown> {
@@ -92,13 +94,19 @@ export function useAdminCrud() {
     [apiCall]
   );
 
+  const restore = useCallback(
+    (table: string, id: string | number, idColumn?: string) =>
+      apiCall({ action: "restore", table, id, idColumn }),
+    [apiCall]
+  );
+
   const upsert = useCallback(
     <T = unknown>(table: string, data: Record<string, unknown> | Record<string, unknown>[], onConflict?: string) =>
       apiCall<T[]>({ action: "upsert", table, data, onConflict }),
     [apiCall]
   );
 
-  return { list, get, create, update, remove, upsert, apiCall, loading, error };
+  return { list, get, create, update, remove, restore, upsert, apiCall, loading, error };
 }
 
 export function useSofascoreApi() {

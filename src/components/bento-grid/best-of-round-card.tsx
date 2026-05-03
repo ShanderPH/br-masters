@@ -158,6 +158,7 @@ export function BestOfRoundCard() {
           .from("matches")
           .select("id, status, round_number")
           .eq("tournament_id", tournamentId)
+          .is("deleted_at", null)
           .order("round_number", { ascending: true });
 
         type MatchRow = { id: string; status: string; round_number: number | null };

@@ -156,7 +156,8 @@ export function LatestPredictionsCard({ delay = 0 }: { delay?: number }) {
           .from("matches")
           .select("id, status, home_score, away_score, home_team:teams!matches_home_team_id_fkey(name_code), away_team:teams!matches_away_team_id_fkey(name_code)")
           .eq("tournament_id", tournamentId)
-          .eq("round_number", roundNumber);
+          .eq("round_number", roundNumber)
+          .is("deleted_at", null);
 
         type MatchDataRow = {
           id: string;

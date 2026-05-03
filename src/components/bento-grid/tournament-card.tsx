@@ -346,6 +346,7 @@ export function TournamentCardWithData({ delay = 0 }: { delay?: number }) {
                     )
                     .eq("tournament_id", currentTournamentId)
                     .in("status", ["scheduled", "live"])
+                    .is("deleted_at", null)
                     .order("start_time", { ascending: true })
                     .limit(50);
 

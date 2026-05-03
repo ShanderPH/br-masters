@@ -114,7 +114,8 @@ export default async function PalpitesPage() {
     const { data: mData } = await supabase
       .from("matches")
       .select("id, round_number, home_team_id, away_team_id, start_time, status, home_score, away_score, tournament_id, home_team:teams!matches_home_team_id_fkey(name, name_code, logo_url), away_team:teams!matches_away_team_id_fkey(name, name_code, logo_url)")
-      .in("tournament_id", activeTournamentIdsList);
+      .in("tournament_id", activeTournamentIdsList)
+      .is("deleted_at", null);
     matchesData = (mData as MatchDataRow[] | null) || [];
   }
 
