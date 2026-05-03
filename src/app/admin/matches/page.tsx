@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Card, Button, Modal, TextField, Input, Label, Tabs } from "@heroui/react";
+import { Card, Button, Modal, TextField, Input, Label, Tabs, AlertDialog } from "@heroui/react";
 import {
   Swords,
   Edit,
@@ -13,6 +13,7 @@ import {
   CheckCircle,
   Calculator,
   Target,
+  Undo2,
 } from "lucide-react";
 import Image from "next/image";
 
@@ -90,7 +91,7 @@ function getStatusLabel(status: string): { label: string; class: string } {
 }
 
 export default function MatchesManagementPage() {
-  const { list, update, remove, loading: crudLoading } = useAdminCrud();
+  const { list, update, remove, restore, loading: crudLoading } = useAdminCrud();
   const sofascore = useSofascoreApi();
 
   const [matches, setMatches] = useState<MatchRow[]>([]);
@@ -100,8 +101,15 @@ export default function MatchesManagementPage() {
   const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
   const [roundFilter, setRoundFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [showDeleted, setShowDeleted] = useState(false);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
+
+  const [deleteTarget, setDeleteTarget] = useState<MatchRow | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePredCount, setDeletePredCount] = useState<number | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
   const [importTournamentId, setImportTournamentId] = useState("");
   const [importSeasonId, setImportSeasonId] = useState("");
@@ -159,6 +167,7 @@ export default function MatchesManagementPage() {
       orderBy: { column: "start_time", ascending: false },
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
+      onlyDeleted: showDeleted,
     });
 
     if (result.data) {
@@ -185,7 +194,7 @@ export default function MatchesManagementPage() {
       setMatches(mapped);
       setTotalCount(result.count ?? 0);
     }
-  }, [list, selectedTournamentId, roundFilter, statusFilter, page]);
+  }, [list, selectedTournamentId, roundFilter, statusFilter, page, showDeleted]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -195,7 +204,7 @@ export default function MatchesManagementPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchMatches();
-  }, [selectedTournamentId, roundFilter, statusFilter, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedTournamentId, roundFilter, statusFilter, page, showDeleted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (importTournamentId) {
@@ -323,10 +332,41 @@ export default function MatchesManagementPage() {
     fetchMatches();
   };
 
-  const handleDeleteMatch = async (id: string) => {
-    if (!confirm("Excluir esta partida?")) return;
-    await remove("matches", id);
-    fetchMatches();
+  const openDeleteDialog = async (match: MatchRow) => {
+    setDeleteTarget(match);
+    setDeleteConfirmInput("");
+    setDeletePredCount(null);
+    setDeleteDialogOpen(true);
+
+    const countResult = await list({
+      table: "predictions",
+      select: "id",
+      filters: [{ column: "match_id", operator: "eq", value: match.id }],
+      limit: 1,
+    });
+    setDeletePredCount(countResult.count ?? 0);
+  };
+
+  const matchSlug = deleteTarget
+    ? `${deleteTarget.home_team_short_name || deleteTarget.home_team_name}-${deleteTarget.away_team_short_name || deleteTarget.away_team_name}`.toLowerCase().replace(/\s+/g, "-")
+    : "";
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteSubmitting(true);
+    const result = await remove("matches", deleteTarget.id);
+    setDeleteSubmitting(false);
+    if (!result.error) {
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      setDeleteConfirmInput("");
+      fetchMatches();
+    }
+  };
+
+  const handleRestoreMatch = async (id: string) => {
+    const result = await restore("matches", id);
+    if (!result.error) fetchMatches();
   };
 
   const loading = crudLoading || sofascore.loading;
@@ -389,6 +429,15 @@ export default function MatchesManagementPage() {
                 <option value="finished" className="bg-brm-card">Finalizado</option>
                 <option value="postponed" className="bg-brm-card">Adiado</option>
               </select>
+              <Button
+                variant={showDeleted ? "danger" : "ghost"}
+                size="sm"
+                onPress={() => { setShowDeleted((v) => !v); setPage(0); }}
+                className="text-xs gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {showDeleted ? "Excluídas (ativas)" : "Ver excluídas"}
+              </Button>
             </div>
           </Card>
 
@@ -451,14 +500,23 @@ export default function MatchesManagementPage() {
                         {formatDateTime(match.start_time)}
                       </div>
                       <div className="flex gap-1 shrink-0">
-                        <Button variant="ghost" size="sm" isIconOnly aria-label="Editar" className="w-7 h-7 min-w-7"
-                          onPress={() => { setEditingMatch(match); setIsEditOpen(true); }}>
-                          <Edit className="w-3.5 h-3.5 text-brm-primary" />
-                        </Button>
-                        <Button variant="ghost" size="sm" isIconOnly aria-label="Excluir" className="w-7 h-7 min-w-7"
-                          onPress={() => handleDeleteMatch(match.id)}>
-                          <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                        </Button>
+                        {!showDeleted && (
+                          <Button variant="ghost" size="sm" isIconOnly aria-label="Editar" className="w-7 h-7 min-w-7"
+                            onPress={() => { setEditingMatch(match); setIsEditOpen(true); }}>
+                            <Edit className="w-3.5 h-3.5 text-brm-primary" />
+                          </Button>
+                        )}
+                        {showDeleted ? (
+                          <Button variant="ghost" size="sm" isIconOnly aria-label="Restaurar" className="w-7 h-7 min-w-7"
+                            onPress={() => handleRestoreMatch(match.id)}>
+                            <Undo2 className="w-3.5 h-3.5 text-brm-secondary" />
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="sm" isIconOnly aria-label="Excluir" className="w-7 h-7 min-w-7"
+                            onPress={() => openDeleteDialog(match)}>
+                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                          </Button>
+                        )}
                       </div>
                     </div>
 
@@ -595,6 +653,74 @@ export default function MatchesManagementPage() {
           </Card>
         </Tabs.Panel>
       </Tabs>
+
+      {/* Delete confirmation */}
+      <AlertDialog.Backdrop isOpen={deleteDialogOpen} onOpenChange={(o) => { if (!deleteSubmitting) setDeleteDialogOpen(o); }}>
+        <AlertDialog.Container>
+          <AlertDialog.Dialog className="sm:max-w-[480px] bg-brm-card border border-white/10">
+            <AlertDialog.CloseTrigger />
+            <AlertDialog.Header>
+              <AlertDialog.Icon status="danger" />
+              <AlertDialog.Heading className="font-display font-bold text-brm-text-primary">
+                Excluir partida?
+              </AlertDialog.Heading>
+            </AlertDialog.Header>
+            <AlertDialog.Body>
+              {deleteTarget && (
+                <div className="space-y-3 text-sm">
+                  <p className="text-brm-text-secondary">
+                    <strong className="text-brm-text-primary">
+                      {deleteTarget.home_team_name} vs {deleteTarget.away_team_name}
+                    </strong>{" "}
+                    — Rodada {deleteTarget.round_number}
+                  </p>
+                  {deletePredCount === null ? (
+                    <p className="text-brm-text-muted text-xs">Verificando palpites…</p>
+                  ) : deletePredCount > 0 ? (
+                    <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-red-300">
+                      <p className="font-semibold mb-1">
+                        {deletePredCount} palpite{deletePredCount === 1 ? "" : "s"} associado{deletePredCount === 1 ? "" : "s"}.
+                      </p>
+                      <p className="text-xs">
+                        A partida será marcada como excluída (soft-delete). Os palpites ficam preservados e não aparecem mais para os usuários. Você pode restaurar depois pelo filtro &ldquo;Ver excluídas&rdquo;.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-brm-text-muted text-xs">Sem palpites — nenhum dado de usuário afetado.</p>
+                  )}
+                  <div>
+                    <label className="block text-xs font-semibold text-brm-text-muted uppercase mb-1">
+                      Digite <code className="text-brm-secondary">{matchSlug}</code> para confirmar
+                    </label>
+                    <input
+                      type="text"
+                      value={deleteConfirmInput}
+                      onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                      placeholder={matchSlug}
+                      autoComplete="off"
+                      className="w-full bg-brm-background text-sm text-brm-text-primary rounded-lg px-3 py-2 outline-none border border-white/10 focus:border-red-500"
+                    />
+                  </div>
+                </div>
+              )}
+            </AlertDialog.Body>
+            <AlertDialog.Footer>
+              <Button slot="close" variant="tertiary" isDisabled={deleteSubmitting}>Cancelar</Button>
+              <Button
+                variant="danger"
+                isDisabled={
+                  deleteSubmitting ||
+                  deletePredCount === null ||
+                  deleteConfirmInput.trim().toLowerCase() !== matchSlug
+                }
+                onPress={confirmDelete}
+              >
+                {deleteSubmitting ? "Excluindo…" : "Excluir"}
+              </Button>
+            </AlertDialog.Footer>
+          </AlertDialog.Dialog>
+        </AlertDialog.Container>
+      </AlertDialog.Backdrop>
 
       {/* Edit Modal */}
       {editingMatch && (
