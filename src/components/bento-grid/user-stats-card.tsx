@@ -389,7 +389,8 @@ export function UserStatsCardWithData({
           supabase
             .from("matches")
             .select("id, status, round_number")
-            .eq("tournament_id", tournamentId),
+            .eq("tournament_id", tournamentId)
+            .is("deleted_at", null),
         ]);
 
         type ProfileRow = {

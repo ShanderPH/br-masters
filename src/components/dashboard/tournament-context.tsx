@@ -162,6 +162,7 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
         .from("matches")
         .select("round_number, status, start_time")
         .eq("tournament_id", tId)
+        .is("deleted_at", null)
         .order("round_number", { ascending: true });
 
       const currentSeasonId = seasonByTournament.get(tId);
