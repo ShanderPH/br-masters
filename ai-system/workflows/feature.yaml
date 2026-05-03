@@ -1,0 +1,8 @@
+name: feature
+
+steps:
+  - plan
+  - db
+  - backend
+  - frontend
+  - review
