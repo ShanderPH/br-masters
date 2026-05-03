@@ -95,11 +95,24 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = (process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase) as any;
 
+    // Tables that use soft-delete via deleted_at column.
+    // Hard DELETE on these is replaced by UPDATE deleted_at = NOW().
+    const SOFT_DELETE_TABLES = new Set<TableName>(["matches"]);
+
     switch (action) {
       case "list": {
+        const { includeDeleted, onlyDeleted } = body as { includeDeleted?: boolean; onlyDeleted?: boolean };
         let query = db
           .from(table)
           .select(select || "*", { count: "exact" });
+
+        if (SOFT_DELETE_TABLES.has(table)) {
+          if (onlyDeleted) {
+            query = query.not("deleted_at", "is", null);
+          } else if (!includeDeleted) {
+            query = query.is("deleted_at", null);
+          }
+        }
 
         if (filters) {
           for (const filter of filters) {
@@ -184,9 +197,42 @@ export async function POST(request: NextRequest) {
 
       case "delete": {
         const { id, idColumn } = body;
+
+        if (SOFT_DELETE_TABLES.has(table)) {
+          const { error } = await db
+            .from(table)
+            .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+            .eq(idColumn || "id", id);
+
+          if (error) {
+            return NextResponse.json({ error: error.message }, { status: 500 });
+          }
+
+          return NextResponse.json({ success: true, softDeleted: true });
+        }
+
         const { error } = await db
           .from(table)
           .delete()
+          .eq(idColumn || "id", id);
+
+        if (error) {
+          return NextResponse.json({ error: error.message }, { status: 500 });
+        }
+
+        return NextResponse.json({ success: true });
+      }
+
+      case "restore": {
+        const { id, idColumn } = body;
+
+        if (!SOFT_DELETE_TABLES.has(table)) {
+          return NextResponse.json({ error: "Tabela não suporta restore" }, { status: 400 });
+        }
+
+        const { error } = await db
+          .from(table)
+          .update({ deleted_at: null, updated_at: new Date().toISOString() })
           .eq(idColumn || "id", id);
 
         if (error) {
