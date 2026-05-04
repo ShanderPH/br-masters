@@ -379,9 +379,8 @@ export function PalpitesClient({
   const getInitialRound = () => {
     const tournamentPreds = predictions.filter((p) => p.tournamentId === defaultTournament);
     const rounds = [...new Set(tournamentPreds.map((p) => p.roundNumber))].sort((a, b) => b - a);
-    const currentRound = currentRounds[defaultTournament] || 1;
-    if (rounds.includes(currentRound)) return currentRound;
-    return rounds[0] || currentRound;
+    const currentRound = currentRounds[defaultTournament];
+    return currentRound || rounds[0] || 1;
   };
 
   const [selectedTournament, setSelectedTournament] = useState(defaultTournament);
@@ -400,8 +399,12 @@ export function PalpitesClient({
 
   const availableRounds = useMemo(() => {
     const rounds = new Set(tournamentPredictions.map((p) => p.roundNumber));
+    const currentRound = currentRounds[selectedTournament];
+    if (currentRound) {
+      rounds.add(currentRound);
+    }
     return Array.from(rounds).sort((a, b) => b - a);
-  }, [tournamentPredictions]);
+  }, [tournamentPredictions, selectedTournament, currentRounds]);
 
   const roundPredictions = useMemo(
     () => tournamentPredictions.filter((p) => p.roundNumber === selectedRound),
@@ -421,8 +424,8 @@ export function PalpitesClient({
     setSelectedTournament(tournamentId);
     const tournamentPreds = predictions.filter((p) => p.tournamentId === tournamentId);
     const rounds = [...new Set(tournamentPreds.map((p) => p.roundNumber))].sort((a, b) => b - a);
-    const currentRound = currentRounds[tournamentId] || 1;
-    const newRound = rounds.includes(currentRound) ? currentRound : (rounds[0] || currentRound);
+    const currentRound = currentRounds[tournamentId];
+    const newRound = currentRound || rounds[0] || 1;
     setSelectedRound(newRound);
   };
 

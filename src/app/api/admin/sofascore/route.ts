@@ -141,6 +141,29 @@ function mapSofascoreStatus(statusType: string | undefined): string {
   }
 }
 
+async function isBrazilOnlyTournament(db: DB, tournamentId: string): Promise<boolean> {
+  const { data } = await db
+    .from("tournaments")
+    .select("filter_brazil_only")
+    .eq("id", tournamentId)
+    .maybeSingle();
+
+  return Boolean((data as { filter_brazil_only?: boolean } | null)?.filter_brazil_only);
+}
+
+async function getBrazilianSofascoreIds(db: DB, sofascoreIds: number[]): Promise<Set<number>> {
+  if (sofascoreIds.length === 0) return new Set<number>();
+
+  const { data } = await db
+    .from("teams")
+    .select("sofascore_id")
+    .in("sofascore_id", sofascoreIds)
+    .eq("is_brazilian", true);
+
+  const ids = (data as { sofascore_id: number }[] | null) || [];
+  return new Set(ids.map((t) => t.sofascore_id));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -437,6 +460,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: "sofascoreTournamentId e sofascoreSeasonId são obrigatórios" }, { status: 400 });
         }
 
+        const filterBrazilOnly = await isBrazilOnlyTournament(db, tournamentId);
+
         const countryId = await getBrazilCountryId(db);
         const events = await fetchAllEvents(sofascoreTournamentId, sofascoreSeasonId);
 
@@ -486,8 +511,17 @@ export async function POST(request: NextRequest) {
           teamMap.set(t.sofascore_id, t.id);
         }
 
+        const allSofascoreIds = Array.from(uniqueTeams.keys());
+        const brazilianSofascoreIds = await getBrazilianSofascoreIds(db, allSofascoreIds);
+
+        const eventsToImport = filterBrazilOnly
+          ? events.filter(
+              (e) => brazilianSofascoreIds.has(e.homeTeam.id) || brazilianSofascoreIds.has(e.awayTeam.id)
+            )
+          : events;
+
         const now = new Date().toISOString();
-        const matchesData = events.map((e) => ({
+        const matchesData = eventsToImport.map((e) => ({
           tournament_id: tournamentId,
           season_id: seasonId,
           home_team_id: teamMap.get(e.homeTeam.id) || null,
@@ -522,12 +556,15 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        const roundNumbers = [...new Set(events.map((e) => e.roundInfo?.round).filter(Boolean))].sort((a, b) => (a || 0) - (b || 0));
-        const pastCount = events.filter((e) => e.status.type === "finished").length;
-        const futureCount = events.filter((e) => e.status.type === "notstarted").length;
+        const roundNumbers = [...new Set(eventsToImport.map((e) => e.roundInfo?.round).filter(Boolean))].sort((a, b) => (a || 0) - (b || 0));
+        const pastCount = eventsToImport.filter((e) => e.status.type === "finished").length;
+        const futureCount = eventsToImport.filter((e) => e.status.type === "notstarted").length;
 
         return NextResponse.json({
-          total: events.length,
+          total: eventsToImport.length,
+          sourceTotal: events.length,
+          filteredOut: Math.max(events.length - eventsToImport.length, 0),
+          brazilOnlyFilterApplied: filterBrazilOnly,
           upserted: totalUpserted,
           teamsProcessed: uniqueTeams.size,
           errors: errorCount,
@@ -548,6 +585,8 @@ export async function POST(request: NextRequest) {
         if (!tournamentId || !seasonId) {
           return NextResponse.json({ error: "tournamentId e seasonId (UUIDs) são obrigatórios" }, { status: 400 });
         }
+
+        const filterBrazilOnly = await isBrazilOnlyTournament(db, tournamentId);
 
         const countryIdRound = await getBrazilCountryId(db);
         const events = await fetchAllEvents(sofascoreTournamentId, sofascoreSeasonId);
@@ -589,8 +628,18 @@ export async function POST(request: NextRequest) {
           roundTeamMap.set(t.sofascore_id, t.id);
         }
 
+        const roundSofascoreIds = Array.from(uniqueTeamsRound.keys());
+        const brazilianRoundSofascoreIds = await getBrazilianSofascoreIds(db, roundSofascoreIds);
+        const roundEventsToImport = filterBrazilOnly
+          ? roundEvents.filter(
+              (e) =>
+                brazilianRoundSofascoreIds.has(e.homeTeam.id) ||
+                brazilianRoundSofascoreIds.has(e.awayTeam.id)
+            )
+          : roundEvents;
+
         const nowRound = new Date().toISOString();
-        const roundMatchesData = roundEvents.map((e) => ({
+        const roundMatchesData = roundEventsToImport.map((e) => ({
           tournament_id: tournamentId,
           season_id: seasonId,
           home_team_id: roundTeamMap.get(e.homeTeam.id) || null,
@@ -617,6 +666,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           count: roundMatchesData.length,
           round: Number(round),
+          sourceTotal: roundEvents.length,
+          filteredOut: Math.max(roundEvents.length - roundMatchesData.length, 0),
+          brazilOnlyFilterApplied: filterBrazilOnly,
         });
       }
 

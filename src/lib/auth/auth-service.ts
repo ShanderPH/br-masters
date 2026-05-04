@@ -2,6 +2,7 @@
 
 import type { Session } from "@supabase/supabase-js";
 
+import { backendLogin, buildSupabaseSession } from "@/lib/api/auth-client";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import type { User, UserProfile } from "@/lib/supabase/types";
 
@@ -76,7 +77,6 @@ async function fetchAppUser(authUserId: string): Promise<AppUser | null> {
 
 export async function signIn(credentials: LoginCredentials): Promise<LoginResponse> {
   try {
-    const supabase = getSupabaseClient();
     const { id, password } = credentials;
 
     if (!id || !password) {
@@ -88,52 +88,34 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
 
     const formattedId = id.padStart(3, "0");
 
-    const { data: userRow, error: userError } = await supabase
-      .from("users")
-      .select("*")
-      .eq("firebase_id", formattedId)
-      .single();
+    const result = await backendLogin({ identifier: formattedId, password });
 
-    if (userError || !userRow) {
+    if (!result.success || !result.user || !result.session) {
       return {
         success: false,
-        error: GENERIC_LOGIN_ERROR,
+        error: result.error ?? GENERIC_LOGIN_ERROR,
       };
     }
 
-    const { data: profileRow } = await supabase
-      .from("user_profiles")
-      .select("email")
-      .eq("id", (userRow as User).id)
-      .single();
+    const supabase = getSupabaseClient();
+    const session = buildSupabaseSession(result.session);
 
-    const email = (profileRow as { email: string } | null)?.email || `user${formattedId}@houseofguess.app`;
-
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const { error: setSessionError } = await supabase.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
     });
 
-    if (authError) {
-      return {
-        success: false,
-        error: GENERIC_LOGIN_ERROR,
-      };
-    }
-
-    if (!authData.session) {
+    if (setSessionError) {
       return {
         success: false,
         error: "Falha ao criar sessão",
       };
     }
 
-    const appUser = await fetchAppUser(authData.user.id);
-
     return {
       success: true,
-      user: appUser ?? undefined,
-      session: authData.session,
+      user: result.user,
+      session,
     };
   } catch (error) {
     console.error("Erro no login:", error);
@@ -146,7 +128,6 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
 
 export async function signInWithEmail(credentials: EmailLoginCredentials): Promise<LoginResponse> {
   try {
-    const supabase = getSupabaseClient();
     const { email, password } = credentials;
 
     if (!email || !password) {
@@ -156,31 +137,34 @@ export async function signInWithEmail(credentials: EmailLoginCredentials): Promi
       };
     }
 
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const result = await backendLogin({ email, password });
 
-    if (authError) {
+    if (!result.success || !result.user || !result.session) {
       return {
         success: false,
-        error: GENERIC_LOGIN_ERROR,
+        error: result.error ?? GENERIC_LOGIN_ERROR,
       };
     }
 
-    if (!authData.session) {
+    const supabase = getSupabaseClient();
+    const session = buildSupabaseSession(result.session);
+
+    const { error: setSessionError } = await supabase.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    });
+
+    if (setSessionError) {
       return {
         success: false,
         error: "Falha ao criar sessão",
       };
     }
 
-    const appUser = await fetchAppUser(authData.user.id);
-
     return {
       success: true,
-      user: appUser ?? undefined,
-      session: authData.session,
+      user: result.user,
+      session,
     };
   } catch (error) {
     console.error("Erro no login por e-mail:", error);
@@ -203,6 +187,10 @@ export async function signOut(): Promise<void> {
 export async function getCurrentUser(): Promise<AppUser | null> {
   try {
     const supabase = getSupabaseClient();
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) return null;
+
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) return null;

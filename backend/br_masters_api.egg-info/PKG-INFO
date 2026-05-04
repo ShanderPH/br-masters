@@ -1,0 +1,21 @@
+Metadata-Version: 2.2
+Name: br-masters-api
+Version: 0.1.0
+Summary: BR Masters backend API
+Requires-Python: >=3.14
+Requires-Dist: django<7.0,>=5.2
+Requires-Dist: djangorestframework<4.0,>=3.16
+Requires-Dist: celery<6.0,>=5.5
+Requires-Dist: redis<6.0,>=5.2
+Requires-Dist: psycopg2-binary<3.0,>=2.9
+Requires-Dist: python-decouple<4.0,>=3.8
+Requires-Dist: django-cors-headers<5.0,>=4.7
+Requires-Dist: gunicorn<24.0,>=23.0
+Requires-Dist: supabase<3.0,>=2.0
+Requires-Dist: pyjwt[crypto]<3.0,>=2.10
+Requires-Dist: httpx<1.0,>=0.28
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=8.0; extra == "dev"
+Requires-Dist: pytest-django<5.0,>=4.10; extra == "dev"
+Requires-Dist: pytest-env<2.0,>=1.1; extra == "dev"
+Requires-Dist: ruff<1.0,>=0.11; extra == "dev"

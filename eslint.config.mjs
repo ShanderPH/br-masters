@@ -13,6 +13,9 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     ".heroui-docs/**",
+    // Keep frontend lint focused and avoid Python backend artifacts:
+    "backend/**",
+    "**/.venv/**",
   ]),
 ]);
 

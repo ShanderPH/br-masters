@@ -479,10 +479,25 @@ export function NextMatchesCardWithData({
         const supabase = createClient();
         const tournamentId = currentTournament?.id;
 
+        let filterBrazilOnly = false;
+        if (tournamentId) {
+          const { data: tournamentData } = await supabase
+            .from("tournaments")
+            .select("filter_brazil_only")
+            .eq("id", tournamentId)
+            .maybeSingle();
+
+          filterBrazilOnly = Boolean(
+            (tournamentData as { filter_brazil_only?: boolean } | null)?.filter_brazil_only
+          );
+        }
+
         let query = supabase
-          .from("upcoming_matches")
-          .select("id, slug, start_time, status, round_number, home_team_id, home_team_name, home_team_code, home_team_logo, away_team_id, away_team_name, away_team_code, away_team_logo, tournament_id, tournament_name")
+          .from("matches")
+          .select("id, slug, start_time, status, round_number, home_team_id, away_team_id, tournament_id, home_team:teams!matches_home_team_id_fkey(name, name_code, logo_url), away_team:teams!matches_away_team_id_fkey(name, name_code, logo_url), tournament:tournaments!matches_tournament_id_fkey(name)")
           .gte("start_time", new Date().toISOString())
+          .is("deleted_at", null)
+          .in("status", ["scheduled", "live"])
           .order("start_time", { ascending: true })
           .limit(50);
 
@@ -495,6 +510,18 @@ export function NextMatchesCardWithData({
 
         const { data: matchesData } = await query;
 
+        let brazilianTeamSet = new Set<string>();
+        if (filterBrazilOnly) {
+          const { data: brazilianTeamsData } = await supabase
+            .from("teams")
+            .select("id")
+            .eq("is_brazilian", true);
+
+          brazilianTeamSet = new Set(
+            ((brazilianTeamsData as { id: string }[] | null) || []).map((t) => t.id)
+          );
+        }
+
         type MatchRow = {
           id: string;
           slug: string;
@@ -502,37 +529,36 @@ export function NextMatchesCardWithData({
           status: string;
           round_number: number | null;
           home_team_id: string;
-          home_team_name: string;
-          home_team_code: string | null;
-          home_team_logo: string | null;
           away_team_id: string;
-          away_team_name: string;
-          away_team_code: string | null;
-          away_team_logo: string | null;
           tournament_id: string;
-          tournament_name: string;
+          home_team: { name: string; name_code: string | null; logo_url: string | null } | null;
+          away_team: { name: string; name_code: string | null; logo_url: string | null } | null;
+          tournament: { name: string } | null;
         };
 
-        const dbMatches = (matchesData as MatchRow[] | null) || [];
+        const dbMatches = ((matchesData as MatchRow[] | null) || []).filter((m) => {
+          if (!filterBrazilOnly) return true;
+          return brazilianTeamSet.has(m.home_team_id) || brazilianTeamSet.has(m.away_team_id);
+        });
 
         const formatted: Match[] = dbMatches.map((m) => ({
           id: m.id,
           homeTeam: {
             id: m.home_team_id,
-            name: m.home_team_name,
-            shortName: m.home_team_code || undefined,
-            logo: m.home_team_logo || getTeamLogoPath(m.home_team_name),
+            name: m.home_team?.name || "TBD",
+            shortName: m.home_team?.name_code || undefined,
+            logo: m.home_team?.logo_url || getTeamLogoPath(m.home_team?.name || "Time"),
           },
           awayTeam: {
             id: m.away_team_id,
-            name: m.away_team_name,
-            shortName: m.away_team_code || undefined,
-            logo: m.away_team_logo || getTeamLogoPath(m.away_team_name),
+            name: m.away_team?.name || "TBD",
+            shortName: m.away_team?.name_code || undefined,
+            logo: m.away_team?.logo_url || getTeamLogoPath(m.away_team?.name || "Time"),
           },
           startTime: m.start_time,
           status: m.status,
           roundNumber: m.round_number || undefined,
-          tournamentName: m.tournament_name,
+          tournamentName: m.tournament?.name || undefined,
         }));
 
         const predictionsMap: Record<string, MatchPrediction> = {};

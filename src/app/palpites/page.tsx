@@ -85,10 +85,10 @@ export default async function PalpitesPage() {
   const seasonsList = (seasonsResult.data as SeasonRow[] | null) || [];
   const predictionRows = (predictionsResult.data as PredictionRow[] | null) || [];
 
-  const seasonMap: Record<string, number> = {};
+  const seasonFallbackMap: Record<string, number> = {};
   seasonsList.forEach((s) => {
     if (s.current_round_number) {
-      seasonMap[String(s.tournament_id)] = s.current_round_number;
+      seasonFallbackMap[String(s.tournament_id)] = s.current_round_number;
     }
   });
 
@@ -117,6 +117,61 @@ export default async function PalpitesPage() {
       .in("tournament_id", activeTournamentIdsList)
       .is("deleted_at", null);
     matchesData = (mData as MatchDataRow[] | null) || [];
+  }
+
+  const seasonMap: Record<string, number> = {};
+  for (const tournamentId of activeTournamentIdsList) {
+    const tournamentMatches = matchesData.filter((m) => String(m.tournament_id) === String(tournamentId));
+
+    if (tournamentMatches.length === 0) {
+      seasonMap[tournamentId] = seasonFallbackMap[tournamentId] || 1;
+      continue;
+    }
+
+    const roundStats = new Map<number, { total: number; finished: number; live: number; scheduled: number }>();
+
+    for (const m of tournamentMatches) {
+      if (typeof m.round_number !== "number") continue;
+      const rn = m.round_number;
+      if (!roundStats.has(rn)) {
+        roundStats.set(rn, { total: 0, finished: 0, live: 0, scheduled: 0 });
+      }
+      const stats = roundStats.get(rn)!;
+      stats.total++;
+      if (m.status === "finished") stats.finished++;
+      else if (m.status === "live") stats.live++;
+      else if (m.status === "scheduled") stats.scheduled++;
+    }
+
+    const sortedRounds = Array.from(roundStats.keys()).sort((a, b) => a - b);
+
+    if (sortedRounds.length === 0) {
+      seasonMap[tournamentId] = seasonFallbackMap[tournamentId] || 1;
+      continue;
+    }
+
+    let computedCurrentRound = sortedRounds[0];
+
+    for (const rn of sortedRounds) {
+      const stats = roundStats.get(rn)!;
+
+      if (stats.live > 0) {
+        computedCurrentRound = rn;
+        break;
+      }
+
+      if (stats.scheduled > 0 && stats.finished < stats.total) {
+        computedCurrentRound = rn;
+        break;
+      }
+
+      if (stats.finished === stats.total) {
+        computedCurrentRound = rn + 1;
+      }
+    }
+
+    const maxRound = Math.max(...sortedRounds);
+    seasonMap[tournamentId] = Math.min(computedCurrentRound, maxRound);
   }
 
   const matchIds = matchesData.map((m) => m.id);
