@@ -67,12 +67,7 @@ logs/
 /.claude
 /.docs
 .mcp.json
-# heroui-agents-md
-.heroui-docs/
 
-# agents
-.agents/
-.windsurf/
-AGENTS.md
-CLAUDE.md
-skills-lock.json
+
+# Sentry Config File
+.env.sentry-build-plugin

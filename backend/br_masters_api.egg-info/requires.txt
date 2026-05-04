@@ -1,0 +1,17 @@
+django<7.0,>=5.2
+djangorestframework<4.0,>=3.16
+celery<6.0,>=5.5
+redis<6.0,>=5.2
+psycopg2-binary<3.0,>=2.9
+python-decouple<4.0,>=3.8
+django-cors-headers<5.0,>=4.7
+gunicorn<24.0,>=23.0
+supabase<3.0,>=2.0
+pyjwt[crypto]<3.0,>=2.10
+httpx<1.0,>=0.28
+
+[dev]
+pytest<9.0,>=8.0
+pytest-django<5.0,>=4.10
+pytest-env<2.0,>=1.1
+ruff<1.0,>=0.11
