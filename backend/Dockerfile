@@ -14,14 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 FROM base AS builder
 
-COPY backend/pyproject.toml /app/pyproject.toml
+COPY pyproject.toml /app/pyproject.toml
 RUN pip install --prefix=/install -e ".[dev]"
 
 FROM base AS runtime
 
 COPY --from=builder /install /usr/local
 
-COPY backend/ /app/
+COPY . /app/
 
 RUN adduser --disabled-password --no-create-home appuser && \
     chown -R appuser:appuser /app
