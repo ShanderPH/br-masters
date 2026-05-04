@@ -148,4 +148,5 @@ celery -A celery_app beat --loglevel=info
 | `Connection refused` on Redis | Redis not provisioned or wrong URL | Check `CELERY_BROKER_URL` |
 | `DisallowedHost` | Missing domain in `DJANGO_ALLOWED_HOSTS` | Add your Railway domain |
 | Worker not picking up tasks | Broker URL mismatch | Verify Redis URL is identical across services |
-| Beat not scheduling | Database scheduler not configured | Ensure `django-celery-beat` is installed and migrations run |
+| Beat not scheduling / `ModuleNotFoundError` | Database scheduler not configured | Ensure `django-celery-beat` is installed and migrations run |
+| `django_celery_beat` tables missing | Migrations not applied before beat startup | Run `python manage.py migrate` for the web service before deploying or restarting beat |
