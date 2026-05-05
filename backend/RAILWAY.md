@@ -12,11 +12,23 @@ The backend is deployed to Railway as **three separate services** sharing the sa
 
 The `RAILWAY_PROCESS_TYPE` environment variable controls which process runs.
 
+## Important Architecture Note
+
+**Supabase Auth is NOT the same as Django's database.**
+
+- Supabase Auth handles user authentication (login, JWT, etc.).
+- Django still needs its **own Postgres database** for:
+  - Django models and migrations
+  - `django-celery-beat` scheduler tables
+  - Any other application data
+
+You can use **Supabase Postgres** as Django's database, but you must configure the connection variables below.
+
 ## Prerequisites
 
 - Railway account connected to this GitHub repository
-- PostgreSQL database (Supabase or Railway Postgres)
-- Redis database (Railway Redis or external provider)
+- Postgres database (Supabase Postgres recommended, or Railway Postgres)
+- Redis database (Railway Redis recommended)
 - Supabase project with Auth enabled
 
 ## Railway Service Setup
@@ -32,25 +44,27 @@ For each service, set the **Root Directory** to `backend`.
 - Build Command: `pip install -e .`
 - Start Command: `bash scripts/entrypoint.sh`
 
-**Environment Variables:**
-| Variable | Value |
+**Required Environment Variables:**
+
+| Variable | Value / Example |
 |---|---|
 | `RAILWAY_PROCESS_TYPE` | `web` |
+| `DJANGO_SETTINGS_MODULE` | `config.settings.production` **(Required for all services)** |
 | `DJANGO_SECRET_KEY` | *(generate a secure key)* |
 | `DJANGO_DEBUG` | `False` |
 | `DJANGO_ALLOWED_HOSTS` | `*.railway.app,your-domain.com` |
-| `DJANGO_SETTINGS_MODULE` | `config.settings.production` |
-| `POSTGRES_HOST` | *(from Railway Postgres or Supabase)* |
-| `POSTGRES_PORT` | `5432` |
-| `POSTGRES_DB` | *(from Railway Postgres or Supabase)* |
-| `POSTGRES_USER` | *(from Railway Postgres or Supabase)* |
-| `POSTGRES_PASSWORD` | *(from Railway Postgres or Supabase)* |
+| `DATABASE_URL` | `postgres://user:password@host:5432/dbname` **(preferred)** |
+| **OR** `POSTGRES_HOST` | *(from Supabase or Railway Postgres)* |
+| **OR** `POSTGRES_PORT` | `5432` |
+| **OR** `POSTGRES_DB` | *(from Supabase or Railway Postgres)* |
+| **OR** `POSTGRES_USER` | *(from Supabase or Railway Postgres)* |
+| **OR** `POSTGRES_PASSWORD` | *(from Supabase or Railway Postgres)* |
 | `SUPABASE_URL` | `https://your-project.supabase.co` |
 | `SUPABASE_ANON_KEY` | *(from Supabase dashboard)* |
 | `SUPABASE_SERVICE_ROLE_KEY` | *(from Supabase dashboard)* |
 | `SUPABASE_JWT_ISSUER` | `https://your-project.supabase.co/auth/v1` |
-| `CELERY_BROKER_URL` | `redis://default:password@redis-host:6379` |
-| `CELERY_RESULT_BACKEND` | `redis://default:password@redis-host:6379` |
+| `CELERY_BROKER_URL` | `redis://default:password@redis-host:6379/0` |
+| `CELERY_RESULT_BACKEND` | `redis://default:password@redis-host:6379/0` |
 | `CORS_ALLOWED_ORIGINS` | `https://your-frontend-domain.com` |
 
 **Healthcheck:**
@@ -85,19 +99,21 @@ Same as web service, except:
 
 ### 5. Redis Provisioning
 
-Provision a Redis service in Railway and link it to all three backend services. Set:
+Provision a **Railway Redis** service and link it to all three backend services.
+
+Use the same Redis connection string for both variables:
 - `CELERY_BROKER_URL`
 - `CELERY_RESULT_BACKEND`
 
-to the Redis connection string provided by Railway.
+Copy the connection string from the Railway Redis service dashboard.
 
-### 6. Database Provisioning
+### 6. Database Provisioning (Supabase Postgres)
 
-Either:
-- Use your existing **Supabase Postgres** instance, or
-- Provision a new **Railway Postgres** and link it to all three services
+1. In your Supabase project, go to **Project Settings > Database**.
+2. Copy the **connection string** (URI format) or the individual host/port/db/user/password values.
+3. Set `DATABASE_URL` (preferred) OR the split `POSTGRES_*` variables in all three Railway services.
 
-Set the `POSTGRES_*` variables accordingly.
+**Note:** If using Supabase Postgres, ensure the connection allows external access and SSL if required.
 
 ## Build Configuration
 
@@ -109,10 +125,11 @@ Railway will auto-detect the Dockerfile in the `backend/` root directory when th
 
 ## Deployment Order
 
-1. Provision PostgreSQL and Redis
-2. Deploy web service (runs migrations via prestart hook if configured)
-3. Deploy worker service
-4. Deploy beat service
+1. Provision PostgreSQL (Supabase or Railway) and Redis
+2. Deploy web service
+3. Run migrations (via web service shell or prestart hook): `python manage.py migrate`
+4. Deploy worker service
+5. Deploy beat service
 
 ## Local Verification Before Deploy
 
@@ -144,8 +161,9 @@ celery -A celery_app beat --loglevel=info
 
 | Symptom | Likely Cause | Fix |
 |---|---|---|
-| `Connection refused` on Postgres | Wrong `POSTGRES_HOST` | Verify Railway variable reference |
-| `Connection refused` on Redis | Redis not provisioned or wrong URL | Check `CELERY_BROKER_URL` |
+| `Connection refused` on Postgres | `DATABASE_URL` or `POSTGRES_*` missing / wrong | Verify Railway variables; do not rely on localhost defaults |
+| `RuntimeError: DJANGO_SETTINGS_MODULE must be set` | Missing `DJANGO_SETTINGS_MODULE` on Railway | Set `DJANGO_SETTINGS_MODULE=config.settings.production` on all services |
+| `Connection refused` on Redis | Redis not provisioned or wrong URL | Check `CELERY_BROKER_URL` matches Railway Redis |
 | `DisallowedHost` | Missing domain in `DJANGO_ALLOWED_HOSTS` | Add your Railway domain |
 | Worker not picking up tasks | Broker URL mismatch | Verify Redis URL is identical across services |
 | Beat not scheduling / `ModuleNotFoundError` | Database scheduler not configured | Ensure `django-celery-beat` is installed and migrations run |
