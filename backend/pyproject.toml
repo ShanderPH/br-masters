@@ -17,6 +17,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10,<3.0",
     "httpx>=0.28,<1.0",
     "django-celery-beat>=2.7,<3.0",
+    "dj-database-url>=2.0,<3.0",
 ]
 
 [project.optional-dependencies]
