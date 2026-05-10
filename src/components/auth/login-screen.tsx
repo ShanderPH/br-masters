@@ -14,7 +14,7 @@ import { ROUTES } from "@/lib/routes";
 type AuthMethod = "username" | "email";
 
 interface LoginScreenProps {
-  onLoginByUsername?: (userId: string, password: string) => void;
+  onLoginByUsername?: (userId: string, password: string, resolvedEmail?: string | null) => void;
   onLoginByEmail?: (email: string, password: string) => void;
   isLoading?: boolean;
   error?: string | null;
@@ -40,7 +40,7 @@ export function LoginScreen({
     if (authMethod === "username" && onLoginByUsername) {
       const credential = selectedUser?.firebase_id || usernameInput.trim();
       if (!credential) return;
-      onLoginByUsername(credential, password);
+      onLoginByUsername(credential, password, selectedUser?.email ?? null);
     } else if (authMethod === "email" && onLoginByEmail && emailInput.trim()) {
       onLoginByEmail(emailInput.trim(), password);
     }

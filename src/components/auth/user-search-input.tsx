@@ -9,6 +9,7 @@ export interface UserSuggestion {
   id: string;
   firebase_id: string;
   name: string;
+  email: string | null;
   favorite_team_logo: string | null;
   avatar_url: string | null;
 }
