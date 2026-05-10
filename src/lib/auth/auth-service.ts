@@ -21,6 +21,7 @@ export interface AppUser {
 export interface LoginCredentials {
   id: string;
   password: string;
+  email?: string;
 }
 
 export interface EmailLoginCredentials {
@@ -74,10 +75,39 @@ async function fetchAppUser(authUserId: string): Promise<AppUser | null> {
 // AUTENTICAÇÃO
 // ============================================================================
 
+async function resolveEmailFromCredential(credential: string): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `/api/auth/user-search?q=${encodeURIComponent(credential)}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) return null;
+
+    const result = (await response.json()) as {
+      data?: Array<{ firebase_id: string; email: string | null }>;
+    };
+    const matches = result.data ?? [];
+    if (matches.length === 0) return null;
+
+    const normalized = credential.trim().toLowerCase();
+    const padded = /^\d+$/.test(normalized) ? normalized.padStart(3, "0") : null;
+
+    const exact = matches.find((m) => {
+      const fid = (m.firebase_id || "").toLowerCase();
+      return fid === normalized || (padded !== null && fid === padded);
+    });
+
+    return (exact ?? matches[0]).email ?? null;
+  } catch (error) {
+    console.error("Erro ao resolver e-mail:", error);
+    return null;
+  }
+}
+
 export async function signIn(credentials: LoginCredentials): Promise<LoginResponse> {
   try {
     const supabase = getSupabaseClient();
-    const { id, password } = credentials;
+    const { id, password, email: providedEmail } = credentials;
 
     if (!id || !password) {
       return {
@@ -86,28 +116,15 @@ export async function signIn(credentials: LoginCredentials): Promise<LoginRespon
       };
     }
 
-    const formattedId = id.padStart(3, "0");
+    const email =
+      providedEmail?.trim() || (await resolveEmailFromCredential(id));
 
-    const { data: userRow, error: userError } = await supabase
-      .from("users")
-      .select("*")
-      .eq("firebase_id", formattedId)
-      .single();
-
-    if (userError || !userRow) {
+    if (!email) {
       return {
         success: false,
         error: GENERIC_LOGIN_ERROR,
       };
     }
-
-    const { data: profileRow } = await supabase
-      .from("user_profiles")
-      .select("email")
-      .eq("id", (userRow as User).id)
-      .single();
-
-    const email = (profileRow as { email: string } | null)?.email || `user${formattedId}@houseofguess.app`;
 
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,

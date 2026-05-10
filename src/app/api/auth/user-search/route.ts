@@ -19,6 +19,7 @@ interface UserSuggestion {
   id: string;
   firebase_id: string;
   name: string;
+  email: string | null;
   favorite_team_logo: string | null;
   avatar_url: string | null;
 }
@@ -176,6 +177,7 @@ export async function GET(request: NextRequest) {
           id: user.id,
           firebase_id: user.firebase_id || "",
           name: fullName || user.username,
+          email: profile.email ?? null,
           favorite_team_logo: user.favorite_team_id
             ? teamMap.get(user.favorite_team_id) ?? null
             : null,
@@ -183,13 +185,14 @@ export async function GET(request: NextRequest) {
           score: getScore(query, user, fullName || user.username),
         };
       })
-      .filter((suggestion): suggestion is UserSuggestion & { score: number } => !!suggestion)
+      .filter(<T,>(suggestion: T | null): suggestion is T => suggestion !== null)
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_RESULTS)
       .map((entry) => ({
         id: entry.id,
         firebase_id: entry.firebase_id,
         name: entry.name,
+        email: entry.email,
         favorite_team_logo: entry.favorite_team_logo,
         avatar_url: entry.avatar_url,
       }));

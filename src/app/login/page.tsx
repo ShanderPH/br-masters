@@ -25,7 +25,11 @@ export default function LoginPage() {
     }
   }, [isAuthenticated, authLoading, router]);
 
-  const handleLoginByUsername = useCallback(async (userId: string, password: string) => {
+  const handleLoginByUsername = useCallback(async (
+    userId: string,
+    password: string,
+    resolvedEmail?: string | null,
+  ) => {
     if (rateLimit.isLocked) return;
 
     setLoginStarted(true);
@@ -33,7 +37,7 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const result = await login({ id: userId, password });
+      const result = await login({ id: userId, password, email: resolvedEmail ?? undefined });
 
       if (result.success) {
         rateLimit.reset();
