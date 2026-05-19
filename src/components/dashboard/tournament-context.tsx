@@ -12,6 +12,7 @@ interface Tournament {
   is_featured?: boolean;
   display_order?: number;
   sofascore_id?: number | null;
+  filter_brazil_only?: boolean;
 }
 
 interface TournamentSeason {
@@ -74,7 +75,7 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
 
         const { data: tournamentsData } = await supabase
           .from("tournaments")
-          .select("id, name, slug, logo_url, format, is_featured, display_order, sofascore_id")
+          .select("id, name, slug, logo_url, format, is_featured, display_order, sofascore_id, filter_brazil_only")
           .order("display_order", { ascending: true });
 
         type TournamentRow = {
@@ -86,6 +87,7 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
           display_order: number;
           format: string;
           sofascore_id: number | null;
+          filter_brazil_only: boolean;
         };
 
         const rows = (tournamentsData as TournamentRow[] | null) || [];
@@ -99,6 +101,7 @@ export function TournamentProvider({ children }: TournamentProviderProps) {
           is_featured: t.is_featured,
           display_order: t.display_order,
           sofascore_id: t.sofascore_id,
+          filter_brazil_only: t.filter_brazil_only,
         }));
 
         const featuredFirst = formatted.filter((t) => t.is_featured);
