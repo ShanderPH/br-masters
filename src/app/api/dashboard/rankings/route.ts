@@ -16,12 +16,62 @@ export async function GET(request: NextRequest) {
   const tournamentId = searchParams.get("tournamentId");
   const round = searchParams.get("round") ? parseInt(searchParams.get("round")!) : null;
 
-  if (!tournamentId) {
-    return NextResponse.json({ error: "tournamentId obrigatório" }, { status: 400 });
-  }
-
   // Use service client to bypass RLS for aggregate rankings
   const db = (process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase) as ReturnType<typeof createServiceClient>;
+
+  type ProfileRow = { id: string; first_name: string; last_name: string | null; total_points?: number | null };
+  type UserRow = { id: string; favorite_team_id: string | null };
+  type TeamRow = { id: string; logo_url: string | null };
+
+  const buildTeamLogoByUserId = async (userIds: string[]) => {
+    const teamLogoByUserId = new Map<string, string | null>();
+    if (userIds.length === 0) return teamLogoByUserId;
+
+    const { data: usersData } = await db.from("users").select("id, favorite_team_id").in("id", userIds);
+    const userRows = (usersData as UserRow[] | null) || [];
+    const teamIdByUserId = new Map(userRows.map((u) => [u.id, u.favorite_team_id]));
+
+    const teamIds = [...new Set(userRows.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
+    const teamLogoByTeamId = new Map<string, string | null>();
+    if (teamIds.length > 0) {
+      const { data: teamsData } = await db.from("teams").select("id, logo_url").in("id", teamIds);
+      ((teamsData as TeamRow[] | null) || []).forEach((team) => {
+        teamLogoByTeamId.set(team.id, team.logo_url);
+      });
+    }
+
+    userIds.forEach((userId) => {
+      const favTeamId = teamIdByUserId.get(userId);
+      teamLogoByUserId.set(userId, favTeamId ? teamLogoByTeamId.get(favTeamId) ?? null : null);
+    });
+
+    return teamLogoByUserId;
+  };
+
+  const { data: generalProfilesData } = await db
+    .from("user_profiles")
+    .select("id, first_name, last_name, total_points")
+    .order("total_points", { ascending: false })
+    .limit(10);
+
+  const generalProfiles = (generalProfilesData as ProfileRow[] | null) || [];
+  const generalTeamLogoByUserId = await buildTeamLogoByUserId(generalProfiles.map((profile) => profile.id));
+
+  const generalRanking = generalProfiles.map((profile, index) => ({
+    id: profile.id,
+    name: `${profile.first_name}${profile.last_name ? ` ${profile.last_name}` : ""}`,
+    points: profile.total_points || 0,
+    rank: index + 1,
+    teamLogo: generalTeamLogoByUserId.get(profile.id) ?? null,
+  }));
+
+  if (!tournamentId) {
+    return NextResponse.json({
+      generalRanking,
+      tournamentRanking: [],
+      roundRanking: [],
+    });
+  }
 
   // Fetch tournament ranking
   const { data: tournamentPreds } = await db
@@ -64,42 +114,30 @@ export async function GET(request: NextRequest) {
   const allUserIds = [...new Set([...tournamentSorted.map((r) => r.userId), ...roundSorted.map((r) => r.userId)])];
 
   if (allUserIds.length === 0) {
-    return NextResponse.json({ tournamentRanking: [], roundRanking: [] });
+    return NextResponse.json({
+      generalRanking,
+      tournamentRanking: [],
+      roundRanking: [],
+    });
   }
 
-  const [{ data: profilesData }, { data: usersData }] = await Promise.all([
-    supabase.from("user_profiles").select("id, first_name, last_name").in("id", allUserIds),
-    supabase.from("users").select("id, favorite_team_id").in("id", allUserIds),
-  ]);
-
-  type ProfileRow = { id: string; first_name: string; last_name: string | null };
+  const { data: profilesData } = await db.from("user_profiles").select("id, first_name, last_name").in("id", allUserIds);
   const profileMap = new Map(((profilesData as ProfileRow[] | null) || []).map((p) => [p.id, p]));
-
-  type UserRow = { id: string; favorite_team_id: string | null };
-  const userRows = (usersData as UserRow[] | null) || [];
-  const teamIdByUserId = new Map(userRows.map((u) => [u.id, u.favorite_team_id]));
-
-  const teamIds = [...new Set(userRows.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
-  let teamLogoMap = new Map<string, string | null>();
-  if (teamIds.length > 0) {
-    const { data: teamsData } = await supabase.from("teams").select("id, logo_url").in("id", teamIds);
-    type TeamRow = { id: string; logo_url: string | null };
-    teamLogoMap = new Map(((teamsData as TeamRow[] | null) || []).map((t) => [t.id, t.logo_url]));
-  }
+  const teamLogoMap = await buildTeamLogoByUserId(allUserIds);
 
   const resolveUser = (userId: string, rank: number, points: number) => {
     const prof = profileMap.get(userId);
-    const favTeamId = teamIdByUserId.get(userId);
     return {
       id: userId,
       name: prof ? `${prof.first_name}${prof.last_name ? ` ${prof.last_name}` : ""}` : "Jogador",
       points,
       rank,
-      teamLogo: favTeamId ? teamLogoMap.get(favTeamId) ?? null : null,
+      teamLogo: teamLogoMap.get(userId) ?? null,
     };
   };
 
   return NextResponse.json({
+    generalRanking,
     tournamentRanking: tournamentSorted.map((r) => resolveUser(r.userId, r.rank, r.points)),
     roundRanking: roundSorted.map((r) => resolveUser(r.userId, r.rank, r.points)),
   });

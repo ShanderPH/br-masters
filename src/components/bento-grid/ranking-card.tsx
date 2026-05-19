@@ -18,7 +18,6 @@ import {
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { VerticalTile } from "./bento-grid";
-import { createClient } from "@/lib/supabase/client";
 import { useTournamentContext } from "@/components/dashboard/tournament-context";
 
 const defaultTeamLogo = "/images/brm-icon.svg";
@@ -190,106 +189,72 @@ export function RankingCardWithData({
     const fetchRankings = async () => {
       setLoading(true);
       try {
-        const supabase = createClient();
         const items: RankingItem[] = [];
 
-        const { data: profilesData } = await supabase
-          .from("user_profiles")
-          .select("id, first_name, last_name, total_points")
-          .order("total_points", { ascending: false })
-          .limit(10);
+        const apiUrl = currentTournament
+          ? `/api/dashboard/rankings?tournamentId=${currentTournament.id}${computedRound > 0 ? `&round=${computedRound}` : ""}`
+          : "/api/dashboard/rankings";
 
-        type ProfileRow = {
-          id: string;
-          first_name: string;
-          last_name: string | null;
-          total_points: number;
-        };
+        const response = await fetch(apiUrl);
 
-        const profiles = (profilesData as ProfileRow[] | null) || [];
+        if (response.ok) {
+          type ApiUser = { id: string; name: string; points: number; rank: number; teamLogo: string | null };
+          const { generalRanking, tournamentRanking, roundRanking } = await response.json() as {
+            generalRanking: ApiUser[];
+            tournamentRanking: ApiUser[];
+            roundRanking: ApiUser[];
+          };
 
-        const teamLogoMap: Map<string, string | null> = new Map();
-        if (profiles.length > 0) {
-          const pIds = profiles.map((p) => p.id);
-          const { data: usersRows } = await supabase.from("users").select("id, favorite_team_id").in("id", pIds);
-          type UR = { id: string; favorite_team_id: string | null };
-          const uRows = (usersRows as UR[] | null) || [];
-          const tIds = [...new Set(uRows.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
-          if (tIds.length > 0) {
-            const { data: teamsData } = await supabase.from("teams").select("id, logo_url").in("id", tIds);
-            type TR = { id: string; logo_url: string | null };
-            const tLookup = new Map(((teamsData as TR[] | null) || []).map((t) => [t.id, t.logo_url]));
-            uRows.forEach((u) => {
-              teamLogoMap.set(u.id, u.favorite_team_id ? tLookup.get(u.favorite_team_id) ?? null : null);
+          if (generalRanking.length > 0) {
+            items.push({
+              id: "general",
+              type: "general",
+              title: "Ranking",
+              subtitle: "Geral",
+              users: generalRanking.slice(0, 10).map((u) => ({
+                id: u.id,
+                name: u.name,
+                points: u.points,
+                rank: u.rank,
+                teamLogo: u.teamLogo,
+              })),
             });
           }
-        }
 
-        if (profiles.length > 0) {
-          const generalRanking: RankingUser[] = profiles.map((p, idx) => ({
-            id: p.id,
-            name: `${p.first_name}${p.last_name ? ` ${p.last_name}` : ""}` || "Jogador",
-            points: p.total_points || 0,
-            rank: idx + 1,
-            teamLogo: teamLogoMap.get(p.id) ?? null,
-          }));
+          if (currentTournament && tournamentRanking.length > 0) {
+            items.push({
+              id: `tournament-${currentTournament.id}`,
+              type: "tournament",
+              title: currentTournament.name,
+              subtitle: "Campeonato",
+              logo: currentTournament.logo_url,
+              users: tournamentRanking.map((u) => ({
+                id: u.id,
+                name: u.name,
+                points: u.points,
+                rank: u.rank,
+                previousRank: null,
+                teamLogo: u.teamLogo,
+              })),
+            });
+          }
 
-          items.push({
-            id: "general",
-            type: "general",
-            title: "Ranking",
-            subtitle: "Geral",
-            users: generalRanking.slice(0, 10),
-          });
-        }
-
-        if (currentTournament) {
-          // Use API route to bypass RLS for tournament and round rankings
-          const apiUrl = `/api/dashboard/rankings?tournamentId=${currentTournament.id}${computedRound > 0 ? `&round=${computedRound}` : ""}`;
-          const response = await fetch(apiUrl);
-
-          if (response.ok) {
-            type ApiUser = { id: string; name: string; points: number; rank: number; teamLogo: string | null };
-            const { tournamentRanking, roundRanking } = await response.json() as {
-              tournamentRanking: ApiUser[];
-              roundRanking: ApiUser[];
-            };
-
-            if (tournamentRanking.length > 0) {
-              items.push({
-                id: `tournament-${currentTournament.id}`,
-                type: "tournament",
-                title: currentTournament.name,
-                subtitle: "Campeonato",
-                logo: currentTournament.logo_url,
-                users: tournamentRanking.map((u) => ({
-                  id: u.id,
-                  name: u.name,
-                  points: u.points,
-                  rank: u.rank,
-                  previousRank: null,
-                  teamLogo: u.teamLogo ?? teamLogoMap.get(u.id) ?? null,
-                })),
-              });
-            }
-
-            if (roundRanking.length > 0 && computedRound > 0) {
-              items.push({
-                id: `round-${currentTournament.id}-${computedRound}`,
-                type: "round",
-                title: `Rodada ${computedRound}`,
-                subtitle: currentTournament.name,
-                logo: currentTournament.logo_url,
-                users: roundRanking.map((u) => ({
-                  id: u.id,
-                  name: u.name,
-                  points: u.points,
-                  rank: u.rank,
-                  previousRank: null,
-                  teamLogo: u.teamLogo ?? teamLogoMap.get(u.id) ?? null,
-                })),
-              });
-            }
+          if (currentTournament && roundRanking.length > 0 && computedRound > 0) {
+            items.push({
+              id: `round-${currentTournament.id}-${computedRound}`,
+              type: "round",
+              title: `Rodada ${computedRound}`,
+              subtitle: currentTournament.name,
+              logo: currentTournament.logo_url,
+              users: roundRanking.map((u) => ({
+                id: u.id,
+                name: u.name,
+                points: u.points,
+                rank: u.rank,
+                previousRank: null,
+                teamLogo: u.teamLogo,
+              })),
+            });
           }
         }
 

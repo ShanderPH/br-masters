@@ -478,6 +478,7 @@ export function NextMatchesCardWithData({
       try {
         const supabase = createClient();
         const tournamentId = currentTournament?.id;
+        const shouldFilterBrazilOnly = Boolean(currentTournament?.filter_brazil_only);
 
         let query = supabase
           .from("upcoming_matches")
@@ -494,6 +495,21 @@ export function NextMatchesCardWithData({
         }
 
         const { data: matchesData } = await query;
+
+        let brazilianTeamSet: Set<string> | null = null;
+
+        if (shouldFilterBrazilOnly) {
+          const { data: brazilianTeamsData } = await supabase
+            .from("teams")
+            .select("id")
+            .eq("is_brazilian", true);
+
+          type BrazilianTeamRow = { id: string };
+          const brazilianTeamIds = ((brazilianTeamsData as BrazilianTeamRow[] | null) || []).map(
+            (team) => team.id
+          );
+          brazilianTeamSet = new Set(brazilianTeamIds);
+        }
 
         type MatchRow = {
           id: string;
@@ -514,8 +530,14 @@ export function NextMatchesCardWithData({
         };
 
         const dbMatches = (matchesData as MatchRow[] | null) || [];
+        const filteredMatches =
+          shouldFilterBrazilOnly && brazilianTeamSet
+            ? dbMatches.filter(
+                (m) => brazilianTeamSet.has(m.home_team_id) || brazilianTeamSet.has(m.away_team_id)
+              )
+            : dbMatches;
 
-        const formatted: Match[] = dbMatches.map((m) => ({
+        const formatted: Match[] = filteredMatches.map((m) => ({
           id: m.id,
           homeTeam: {
             id: m.home_team_id,
@@ -581,7 +603,7 @@ export function NextMatchesCardWithData({
     };
 
     fetchData();
-  }, [currentUserId, currentTournament?.id, computedRound]);
+  }, [currentUserId, currentTournament?.id, currentTournament?.filter_brazil_only, computedRound]);
 
   const handleLoadMore = () => {
     setVisibleCount((prev) => Math.min(prev + LOAD_MORE_COUNT, matches.length));

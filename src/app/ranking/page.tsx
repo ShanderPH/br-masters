@@ -5,6 +5,7 @@ import { RankingClient } from "./ranking-client";
 
 export default async function RankingPage() {
   const supabase = await createClient();
+  const db = process.env.SUPABASE_SERVICE_ROLE_KEY ? createServiceClient() : supabase;
 
   const {
     data: { user },
@@ -140,12 +141,12 @@ export default async function RankingPage() {
   const allGenUserIds = genProfiles.map((p) => p.id);
   const genTeamsMap: Map<string, string | null> = new Map();
   if (allGenUserIds.length > 0) {
-    const { data: genUsersData } = await supabase.from("users").select("id, favorite_team_id").in("id", allGenUserIds);
+    const { data: genUsersData } = await db.from("users").select("id, favorite_team_id").in("id", allGenUserIds);
     type GUR = { id: string; favorite_team_id: string | null };
     const genUsers = (genUsersData as GUR[] | null) || [];
     const teamIds = [...new Set(genUsers.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
     if (teamIds.length > 0) {
-      const { data: td } = await supabase.from("teams").select("id, logo_url").in("id", teamIds);
+      const { data: td } = await db.from("teams").select("id, logo_url").in("id", teamIds);
       type TR = { id: string; logo_url: string | null };
       const teamsLookup = new Map(((td as TR[] | null) || []).map((t) => [t.id, t.logo_url]));
       genUsers.forEach((u) => {
@@ -182,12 +183,12 @@ export default async function RankingPage() {
   // Hydrate team logos for the same set
   const missingTeamUserIds = allTpUserIds.filter((id) => !genTeamsMap.has(id));
   if (missingTeamUserIds.length > 0) {
-    const { data: extraUsersData } = await supabase.from("users").select("id, favorite_team_id").in("id", missingTeamUserIds);
+    const { data: extraUsersData } = await db.from("users").select("id, favorite_team_id").in("id", missingTeamUserIds);
     type GUR2 = { id: string; favorite_team_id: string | null };
     const extraUsers = (extraUsersData as GUR2[] | null) || [];
     const extraTeamIds = [...new Set(extraUsers.map((u) => u.favorite_team_id).filter(Boolean))] as string[];
     if (extraTeamIds.length > 0) {
-      const { data: etd } = await supabase.from("teams").select("id, logo_url").in("id", extraTeamIds);
+      const { data: etd } = await db.from("teams").select("id, logo_url").in("id", extraTeamIds);
       type TR2 = { id: string; logo_url: string | null };
       const extraTeamsLookup = new Map(((etd as TR2[] | null) || []).map((t) => [t.id, t.logo_url]));
       extraUsers.forEach((u) => {
